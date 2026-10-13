@@ -4,8 +4,6 @@ An [MCP](https://modelcontextprotocol.io) server for the [Fireside.fm](https://f
 
 This is an unofficial project. It is not affiliated with or endorsed by Fireside.
 
-> **Status:** pre-release (0.1.0), not yet published to npm. Until it is, build it locally (see [Development](#development)) and, in the examples below, replace `npx -y firesidefm-mcp-server` with `node /path/to/firesidefm-mcp-server/dist/cli.js`.
-
 ## Requirements
 
 - Node.js 22 or later
