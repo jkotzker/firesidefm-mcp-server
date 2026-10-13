@@ -14,7 +14,15 @@ export function errorResult(error: unknown): CallToolResult {
 export function describeError(error: unknown): string {
   if (error instanceof ToolInputError) return error.message;
   if (error instanceof FileUploadError) {
-    return `${error.message}\nNothing was attached to an episode. Try fireside_upload_file again.`;
+    // A retry asks for a new signed address, which helps after no response, a server error or an expired
+    // signature (403); any other refusal is about the file and will happen again.
+    const { status } = error;
+    const retry = status === undefined || status >= 500 || status === 403;
+    return `${error.message}\nNothing was attached to an episode. ${
+      retry
+        ? 'Try fireside_upload_file again.'
+        : 'Trying again with the same file is unlikely to help; tell the user what the storage service said.'
+    }`;
   }
   if (error instanceof FiresideResponseShapeError) {
     if (error.request.method === 'GET') return error.message;
@@ -37,7 +45,7 @@ export function describeError(error: unknown): string {
       ? UPLOAD_RETRY_HINT
       : MAYBE_APPLIED_HINT
     : code === 'upload_failed'
-      ? uploadFailedHint(savedEpisode)
+      ? uploadFailedHint(method, savedEpisode)
       : hintFor(status, code, retryAfterSeconds);
   if (hint) lines.push(hint);
   return lines.join('\n');
@@ -62,14 +70,18 @@ function outcomeUnknown(method: string, status: number | undefined): boolean {
   return method !== 'GET' && (status === undefined || (status >= 200 && status < 300));
 }
 
-/** Fireside saves the episode's other changes when a file fails, so a repeated create would leave a second draft. */
-function uploadFailedHint(saved: { token: string; slug: string } | undefined): string {
+/**
+ * Fireside could not process the file, but saves the request's other changes, so a repeated create would
+ * leave a second draft. The file itself is the likely problem, so sending it again is no fix.
+ */
+function uploadFailedHint(method: string, saved: { token: string; slug: string } | undefined): string {
   const episode = saved ? `episode ${saved.slug} (token ${saved.token})` : 'the episode';
-  return (
-    `The file was not attached, but the other changes were saved to ${episode}. Do not repeat ` +
-    'fireside_create_episode, which would create a second draft. Attach the file with fireside_update_episode, ' +
-    'uploading it again with fireside_upload_file if needed.'
-  );
+  const check = 'Check the file with the user; attach a corrected one with fireside_update_episode.';
+  return method === 'POST'
+    ? `Fireside could not process the file, so it was not attached, but ${episode} was created with the other ` +
+        `fields. Do not repeat fireside_create_episode, which would create a second draft. ${check}`
+    : `Fireside could not process the file, so it was not attached to ${episode}; any other changes in the same ` +
+        `call were saved. ${check}`;
 }
 
 function hintFor(status: number | undefined, code: string | undefined, retryAfter: number | undefined): string | undefined {

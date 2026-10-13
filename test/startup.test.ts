@@ -97,6 +97,7 @@ describe('startup', () => {
     ]);
     expect(deps.uploadDirs).toEqual(['/podcast/audio']);
     expect(notices.join('\n')).toContain('Files can be uploaded from /podcast/audio.');
+    expect(notices.join('\n')).toContain('lists /podcast/audio, which is not an existing directory');
   });
 
   it('withholds write tools for a Read Only key', async () => {

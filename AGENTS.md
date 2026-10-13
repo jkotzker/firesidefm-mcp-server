@@ -41,7 +41,7 @@ There is no linter or formatter; match the surrounding code.
 ## Rules
 
 - Write tools are registered only when the key was verified as Read/Write at startup and `FIRESIDE_READ_ONLY` is off. Never register them on any other path.
-- `fireside_upload_file` sends only files whose resolved path (after following symbolic links) is inside `FIRESIDE_UPLOAD_DIRS`, and is not registered without it. The file goes to the signed `upload_url` without the Fireside key; neither that URL nor the storage service's error body appears in output.
+- `fireside_upload_file` sends only files whose resolved path (after following symbolic links) is inside `FIRESIDE_UPLOAD_DIRS`, checked again once the file is open, and is not registered without it. The file goes to the signed `upload_url` by PUT only, without the Fireside key and without following redirects; neither that URL nor the storage service's error body appears in output.
 - Tool handlers never throw. Wrap every handler body in `guarded(...)`, which turns failures into `isError` results.
 - The API key must never appear in output or error text. `config.ts` rejects keys with characters a header cannot carry, and `FiresideClient` redacts the key from transport errors. Keep both.
 - Tool input schemas are `z.strictObject`. Response schemas are `z.looseObject`, so new upstream fields pass through; a documented field with the wrong shape raises `FiresideResponseShapeError`.
@@ -66,6 +66,7 @@ There is no linter or formatter; match the surrounding code.
 - `test/helpers/fake-fetch.ts`: a fetch stand-in that answers from routes, consumed in order (so a test can script a 429 followed by a 200). `fixture(name)` loads `test/fixtures/<name>.json`.
 - `test/helpers/mcp.ts`: `connect(factory, era)` connects an SDK client in-process. `'modern'` negotiates protocol `2026-07-28`, `'legacy'` the 2025-era handshake; cover both where the handshake matters.
 - For write tools, assert on the recorded requests (method, path, body), not just the result.
+- `test/fixtures/audio/` holds one-second MP3s that ffmpeg encoded from a generated tone or noise; their expected values in `test/mp3.test.ts` were checked against ffprobe.
 - A new test must fail when the change it covers is reverted.
 
 ## Contributing changes

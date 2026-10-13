@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createReadStream, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -37,6 +38,8 @@ beforeAll(() => {
   writeFileSync(join(allowed, 'stereo.mp3'), mp3({ kbps: 128, mono: false }));
   writeFileSync(join(allowed, 'renamed.mp3'), Buffer.concat([Buffer.from('RIFF....WAVEfmt ', 'latin1'), Buffer.alloc(2000)]));
   symlinkSync(allowed, join(root, 'linked-dir'));
+  mkdirSync(join(allowed, 'folder.mp3'));
+  if (process.platform !== 'win32') execFileSync('mkfifo', [join(allowed, 'pipe.mp3')]);
   writeFileSync(join(allowed, 'notes.txt'), 'Hello.\n');
   writeFileSync(join(allowed, 'readme.md'), '# Notes\n');
   writeFileSync(join(allowed, 'empty.txt'), '');
@@ -164,6 +167,62 @@ describe('FiresideClient uploads', () => {
     expect(seen?.length).toBe(AUDIO.length);
   });
 
+  it('sends only PUT, refusing another method before sending anything', async () => {
+    const { c, requests } = client([]);
+    await expect(
+      c.sendFile({ upload_url: SIGNED_URL, method: 'POST', headers: {} }, chunks(join(allowed, 'notes.txt'))),
+    ).rejects.toThrow('Fireside asked for an upload by POST, not PUT');
+    expect(requests).toHaveLength(0);
+  });
+
+  it("replaces Fireside's own Content-Length and Host, in any letter case", async () => {
+    const { c, requests } = client([putRoute]);
+    await c.sendFile(
+      { upload_url: SIGNED_URL, method: 'put', headers: { 'content-length': '1', host: 'elsewhere.example', 'Content-Type': 'text/plain' } },
+      chunks(join(allowed, 'notes.txt')),
+    );
+    expect(requests[0]!.headers.get('content-length')).toBe('7');
+    expect(requests[0]!.headers.has('host')).toBe(false);
+    expect(requests[0]!.headers.get('content-type')).toBe('text/plain');
+  });
+
+  it('refuses to follow a redirect from the storage service', async () => {
+    const seen: string[] = [];
+    const server = createServer((req, res) => {
+      seen.push(`${req.method} ${req.url}`);
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(303, { Location: '/elsewhere' });
+        res.end();
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const c = new FiresideClient({ token: TOKEN, fetch: (_input, init) => fetch(`http://127.0.0.1:${port}/`, init) });
+      const error = await c
+        .sendFile({ upload_url: SIGNED_URL, method: 'PUT', headers: {} }, chunks(join(allowed, 'notes.txt')))
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(FileUploadError);
+    } finally {
+      server.close();
+    }
+    expect(seen).toEqual(['PUT /']);
+  });
+
+  it('gives a large file longer than the shortest time limit', async () => {
+    // 312,000 bytes at the assumed 100 KB/s floor is 3.12 s; this upload takes 100 ms; the floor is 20 ms.
+    const slow: typeof fetch = (_input, init) =>
+      new Promise((resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+        setTimeout(() => resolve(new Response('')), 100);
+      });
+    const c = new FiresideClient({ token: TOKEN, fetch: slow, minUploadTimeoutMs: 20 });
+    await expect(
+      c.sendFile({ upload_url: SIGNED_URL, method: 'PUT', headers: {} }, chunks(join(allowed, 'long.mp3'))),
+    ).resolves.toBeUndefined();
+  });
+
   // A fetch that answers only when its request is aborted.
   const hanging: typeof fetch = (_input, init) =>
     new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)));
@@ -250,7 +309,7 @@ describe('fireside_upload_file', () => {
       field: 'audio_file_url',
       episode: { token: EP, audio_status: 'ready' },
     });
-    expect(result.structuredContent).not.toHaveProperty('file_url');
+    expect(result.structuredContent).toMatchObject({ file_url: FILE_URL, expires_at: '2026-10-13T15:00:00Z' });
     expect(result.structuredContent).toMatchObject({ audio: { channels: 'mono', bitrate_kbps: 64, sample_rate_hz: 44_100 } });
     expect(progress.at(-1)).toBe(AUDIO.length);
   });
@@ -321,7 +380,7 @@ describe('fireside_upload_file', () => {
     ]);
     const result = await call({ podcast: POD, episode: EP, path: join(allowed, 'episode.mp3') });
     expect(result.isError).toBe(true);
-    expect(text(result)).toContain(`fireside_update_episode with audio_file_url: ${FILE_URL}`);
+    expect(text(result)).toContain(`fireside_update_episode using audio_file_url: ${FILE_URL}`);
   });
 
   it('does not treat a failed upload request as a saved change', async () => {
@@ -330,6 +389,91 @@ describe('fireside_upload_file', () => {
     expect(result.isError).toBe(true);
     expect(text(result)).toContain('Try fireside_upload_file again');
     expect(text(result)).not.toContain('The change was saved');
+  });
+
+  it.skipIf(process.platform === 'win32')('refuses a named pipe without waiting for a writer', async () => {
+    const { call, requests } = await open([]);
+    const result = await call({ podcast: POD, path: join(allowed, 'pipe.mp3') });
+    expect(text(result)).toContain('is not a file');
+    expect(requests).toHaveLength(0);
+  });
+
+  it('refuses a directory', async () => {
+    const { call, requests } = await open([]);
+    const result = await call({ podcast: POD, path: join(allowed, 'folder.mp3') });
+    expect(text(result)).toContain('is not a file');
+    expect(requests).toHaveLength(0);
+  });
+
+  it.runIf(process.platform === 'darwin' || process.platform === 'win32')(
+    'accepts a path whose letter case differs from the upload directory',
+    async () => {
+      const { call } = await open([uploadRoute('transcript', 'text/plain'), putRoute]);
+      const result = await call({ podcast: POD, path: join(allowed.toUpperCase(), 'notes.txt') });
+      expect(result.isError).toBeFalsy();
+    },
+  );
+
+  it('finds the episode before uploading, and uploads nothing for an unknown one', async () => {
+    const found = await open([
+      { method: 'GET', path: `podcasts/${POD}/episodes`, body: fixture('episodes') },
+      uploadRoute('transcript', 'text/plain'),
+      putRoute,
+      { method: 'PATCH', path: `podcasts/${POD}/episodes/${EP}`, body: fixture('episode') },
+    ]);
+    expect((await found.call({ podcast: POD, episode: '42', path: join(allowed, 'notes.txt') })).isError).toBeFalsy();
+    expect(found.requests.map((r) => r.method)).toEqual(['GET', 'POST', 'PUT', 'PATCH']);
+    await conn?.close();
+
+    const missing = await open([{ method: 'GET', path: `podcasts/${POD}/episodes`, body: fixture('episodes') }]);
+    const result = await missing.call({ podcast: POD, episode: 'nope', path: join(allowed, 'notes.txt') });
+    expect(result.isError).toBe(true);
+    expect(missing.requests.map((r) => r.method)).toEqual(['GET']);
+  });
+
+  it('says to try again when the upload request gets no answer', async () => {
+    const { call } = await open([]);
+    const result = await call({ podcast: POD, path: join(allowed, 'notes.txt') });
+    expect(text(result)).toContain('Nothing was attached to an episode. Try fireside_upload_file again.');
+    expect(text(result)).not.toContain('duplicate draft');
+  });
+
+  it.each([
+    [403, false],
+    [413, true],
+  ])('adds the size note to a %i from the upload request: %s', async (status, noted) => {
+    const { call } = await open([
+      { method: 'POST', path: `podcasts/${POD}/uploads`, status, body: { error: { message: 'Refused' } } },
+    ]);
+    const result = await call({ podcast: POD, path: join(allowed, 'notes.txt') });
+    expect(text(result).includes('The file is 7 bytes')).toBe(noted);
+  });
+
+  it.each([
+    [403, 'Try fireside_upload_file again.'],
+    [500, 'Try fireside_upload_file again.'],
+    [400, 'Trying again with the same file is unlikely to help'],
+  ])('after a storage refusal with HTTP %i, says: %s', async (status, advice) => {
+    const { call } = await open([uploadRoute('transcript', 'text/plain'), { ...putRoute, status, body: '' }]);
+    const result = await call({ podcast: POD, path: join(allowed, 'notes.txt') });
+    expect(text(result)).toContain(advice);
+  });
+
+  it('does not suggest re-attaching a file Fireside could not process', async () => {
+    const { call } = await open([
+      uploadRoute('transcript', 'text/plain'),
+      putRoute,
+      {
+        method: 'PATCH',
+        path: `podcasts/${POD}/episodes/${EP}`,
+        status: 422,
+        body: { error: { message: 'notes.txt could not be processed', code: 'upload_failed' }, data: (fixture('episode') as { data: unknown }).data },
+      },
+    ]);
+    const result = await call({ podcast: POD, episode: EP, path: join(allowed, 'notes.txt') });
+    expect(text(result)).toContain('Fireside could not process the file, so it was not attached to episode');
+    expect(text(result)).not.toContain('fireside_create_episode');
+    expect(text(result)).not.toContain('rather than uploading it again');
   });
 
   it('returns a file_url when no episode is given', async () => {
@@ -379,6 +523,17 @@ describe('file fields on create and update', () => {
   afterEach(async () => {
     await conn?.close();
     conn = undefined;
+  });
+
+  it('fireside_list_episodes shows a failed audio transfer', async () => {
+    const episodes = fixture('episodes') as { data: Record<string, unknown>[] };
+    episodes.data[0] = { ...episodes.data[0], audio_status: 'failed', audio_error: 'The file is not MP3 audio.' };
+    const server = serverWith([{ method: 'GET', path: `podcasts/${POD}/episodes`, body: episodes }]);
+    conn = await connect(server.factory, 'modern');
+    const result = (await conn.client.callTool({ name: 'fireside_list_episodes', arguments: { podcast: POD } })) as CallToolResult;
+    expect(result.structuredContent).toMatchObject({
+      episodes: [{ audio_status: 'failed', audio_error: 'The file is not MP3 audio.' }],
+    });
   });
 
   it('fireside_update_episode sends a file_url', async () => {

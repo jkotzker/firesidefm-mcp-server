@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { type FileHandle, open, realpath } from 'node:fs/promises';
+import { type FileHandle, open, realpath, stat } from 'node:fs/promises';
 import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import type { McpServer } from '@modelcontextprotocol/server';
@@ -24,6 +24,9 @@ const FILE_TYPES: Record<string, { kind: FileKind; contentType: string }> = {
   '.txt': { kind: 'transcript', contentType: 'text/plain' },
 };
 
+// macOS and Windows file systems ignore letter case by default.
+const CASE_INSENSITIVE = process.platform === 'darwin' || process.platform === 'win32';
+
 const FIELDS = ['audio_file_url', 'cover_file_url', 'transcript_file_url'] as const;
 type FileField = (typeof FIELDS)[number];
 
@@ -32,8 +35,8 @@ const uploadOutputSchema = z.object({
   filename: z.string(),
   byte_size: z.number().int(),
   field: z.enum(FIELDS),
-  file_url: z.string().optional(),
-  expires_at: z.string().optional(),
+  file_url: z.string(),
+  expires_at: z.string(),
   audio: z
     .object({
       channels: z.string(),
@@ -60,8 +63,9 @@ export function registerUploadTool(server: McpServer, { client, resolver, upload
       description:
         'Upload episode audio (.mp3), cover art (.jpg, .jpeg, .png, .gif or .webp) or a transcript (.txt) from this ' +
         `computer. Only files inside ${where} can be sent; upload only a file the user asked for. With episode, the ` +
-        'file is attached to that episode, and changes to a published episode go live immediately. Without it, the ' +
-        'result has a file_url to pass to fireside_create_episode or fireside_update_episode in the field it names. ' +
+        'file is attached to that episode, and changes to a published episode go live immediately. Without it, pass ' +
+        "the result's file_url to fireside_create_episode or fireside_update_episode in the field it names; " +
+        'resending it with fireside_update_episode also retries an audio transfer that failed. ' +
         'An MP3 is checked first and refused if it differs from the settings Fireside suggests, unless ' +
         'accept_audio_specs is set. Audio then transfers in the background: fireside_get_episode shows its audio_status.',
       inputSchema: z.strictObject({
@@ -118,19 +122,30 @@ export function registerUploadTool(server: McpServer, { client, resolver, upload
           );
 
           const field: FileField = `${file.kind}_file_url`;
-          const result = { kind: file.kind, filename: file.filename, byte_size: file.size, field, ...(audio ? { audio } : {}) };
-          if (episode === undefined) return ok({ ...result, file_url: upload.file_url, expires_at: upload.expires_at });
+          // file_url is returned after attaching too: resending it with fireside_update_episode retries a failed
+          // background audio transfer without uploading the file again.
+          const result = {
+            kind: file.kind,
+            filename: file.filename,
+            byte_size: file.size,
+            field,
+            file_url: upload.file_url,
+            expires_at: upload.expires_at,
+            ...(audio ? { audio } : {}),
+          };
+          if (episode === undefined) return ok(result);
           const changes: EpisodeFields = {};
           changes[field] = upload.file_url;
           try {
             const res = await client.updateEpisode(podcast, episode, changes, signal);
             return ok({ ...result, episode: writtenEpisode(res.data) });
           } catch (error) {
+            if (!fileNotTheProblem(error)) throw error;
             // The upload itself succeeded; resending a large file to retry the attachment would waste it.
             throw new ToolInputError(
-              `${describeError(error)}\nThe file itself was uploaded. To attach it, call fireside_update_episode with ` +
-                `${field}: ${upload.file_url} (Fireside gives it an expiry of ${upload.expires_at}) rather than ` +
-                'uploading it again.',
+              `${describeError(error)}\nThe file itself was uploaded. If the episode does not show it, attach it with ` +
+                `fireside_update_episode using ${field}: ${upload.file_url} (Fireside gives it an expiry of ` +
+                `${upload.expires_at}) rather than uploading it again.`,
             );
           }
         } finally {
@@ -142,7 +157,8 @@ export function registerUploadTool(server: McpServer, { client, resolver, upload
 
 /**
  * Checks the path against the upload directories and opens it. The file is read through the returned
- * handle, so it cannot be swapped for another between these checks and the upload.
+ * handle, so it cannot be replaced between the checks and the upload. The checks are repeated once the
+ * file is open; a process rewriting the upload directories during that moment could still race them.
  */
 async function openFile(path: string, dirs: readonly string[]) {
   const outside = new ToolInputError(
@@ -155,9 +171,11 @@ async function openFile(path: string, dirs: readonly string[]) {
   const realDirs = (await Promise.all(dirs.map((dir) => realpath(dir).catch(() => undefined)))).filter(
     (dir) => dir !== undefined,
   );
-  // Checked before the file is touched, so a refusal does not reveal whether a path elsewhere exists.
+  // Checked before the file is touched, so a refusal does not reveal whether a path elsewhere exists. Letter
+  // case is ignored where the file system usually ignores it; the check on the resolved path is exact.
   const requested = resolve(path);
-  if (![...dirs, ...realDirs].some((dir) => isInside(requested, dir))) throw outside;
+  const fold = CASE_INSENSITIVE ? (p: string) => p.toLowerCase() : (p: string) => p;
+  if (![...dirs, ...realDirs].some((dir) => isInside(fold(requested), fold(dir)))) throw outside;
   let real: string;
   try {
     real = await realpath(requested);
@@ -174,7 +192,8 @@ async function openFile(path: string, dirs: readonly string[]) {
   }
   let handle: FileHandle;
   try {
-    handle = await open(real, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    // O_NONBLOCK: opening a named pipe would otherwise wait forever for a writer; it changes nothing for files.
+    handle = await open(real, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   } catch {
     throw new ToolInputError(`${path} does not exist or cannot be read.`);
   }
@@ -182,6 +201,12 @@ async function openFile(path: string, dirs: readonly string[]) {
     const info = await handle.stat();
     if (!info.isFile()) throw new ToolInputError(`${path} is not a file.`);
     if (info.size === 0) throw new ToolInputError(`${path} is empty.`);
+    // The open followed the path again; make sure it reached the file that was checked.
+    const again = await realpath(requested).catch(() => undefined);
+    const atPath = again === undefined ? undefined : await stat(again).catch(() => undefined);
+    if (again !== real || atPath?.dev !== info.dev || atPath?.ino !== info.ino) {
+      throw new ToolInputError(`${path} changed while it was being checked. Nothing was uploaded; try again.`);
+    }
     return { handle, filename: basename(real), size: info.size, ...type };
   } catch (error) {
     await handle.close();
@@ -215,14 +240,24 @@ async function checkAudio(file: { handle: FileHandle; size: number; filename: st
  */
 function withSizeNote(error: unknown, size: number): unknown {
   if (!(error instanceof FiresideApiError) || error.details.status === undefined) return error;
-  const status = error.details.status;
-  if (status < 400 || status >= 500 || [401, 404, 429].includes(status)) return error;
+  // 413 and 422 are the statuses a size refusal can take; others (a 403 for the role, say) have their own hint.
+  if (error.details.status !== 413 && error.details.status !== 422) return error;
   return new ToolInputError(
     `${describeError(error)}\nThe file is ${size.toLocaleString('en-US')} bytes (${(size / 1e6).toFixed(1)} MB, ` +
       `${(size / 2 ** 20).toFixed(1)} MiB). Fireside checks files against the plan's limits: cover art up to 1.91 MB, ` +
       "transcripts up to 195 KB, and audio up to the plan's MP3 limit, which the Fireside dashboard shows where " +
       'episode audio is uploaded. If the file is larger, that is a likely cause.',
   );
+}
+
+/**
+ * Whether an attach failure left the uploaded file usable: no response, a server error, a rate limit or
+ * a missing episode. Fireside refusing the file itself (upload_failed, 422) is not fixed by resending it.
+ */
+function fileNotTheProblem(error: unknown): boolean {
+  if (!(error instanceof FiresideApiError)) return false;
+  const { status } = error.details;
+  return status === undefined || status >= 500 || status === 429 || status === 404;
 }
 
 function isInside(file: string, dir: string): boolean {

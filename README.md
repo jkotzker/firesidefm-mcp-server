@@ -18,11 +18,11 @@ A **Read Only** key enables the read tools; a **Read/Write** key also enables th
 | `FIRESIDE_API_TOKEN` | yes | Your Fireside API key (`fire_…`). |
 | `FIRESIDE_PODCAST` | no | Token or slug of the podcast to use when a request doesn't name one. |
 | `FIRESIDE_READ_ONLY` | no | `true` to offer only the read tools, even with a Read/Write key. |
-| `FIRESIDE_UPLOAD_DIRS` | no | Directories whose files may be uploaded, separated as in `PATH` (`:` on macOS and Linux, `;` on Windows). Absolute paths; `~` stands for your home directory. Uploads are off when this is not set. |
+| `FIRESIDE_UPLOAD_DIRS` | no | Directories whose files may be uploaded, separated as in `PATH` (`:` on macOS and Linux, `;` on Windows). Absolute paths; a leading `~/` stands for your home directory. Uploads are off when this is not set. |
 
 At startup the server checks the key with Fireside. The write tools are offered only when the key is Read/Write and `FIRESIDE_READ_ONLY` is not set. A rejected key stops the server with an explanation on stderr. If the key cannot be checked for any other reason, such as a network error or a Fireside outage, the server starts with only the read tools and says why on stderr; restart it to try again.
 
-`fireside_upload_file` is offered only with a Read/Write key and `FIRESIDE_UPLOAD_DIRS` set. It sends only files inside those directories (symbolic links are followed before the check; a hard link cannot be told apart from the file it points to), so set it to the folders where you keep finished episode files rather than your home directory.
+`fireside_upload_file` is offered only with a Read/Write key and `FIRESIDE_UPLOAD_DIRS` set. It sends only files inside those directories (symbolic links are followed before the check, which is repeated once the file is open; a hard link cannot be told apart from the file it points to, and another program rewriting those directories at the same moment could race the check), so set it to the folders where you keep finished episode files rather than your home directory.
 
 Both hosts below store the key in plain text in their configuration file.
 

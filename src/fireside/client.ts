@@ -164,6 +164,10 @@ export class FiresideClient {
     if (!URL.canParse(upload.upload_url) || new URL(upload.upload_url).protocol !== 'https:') {
       throw new FileUploadError('Fireside returned an upload address that is not https, so the file was not sent.');
     }
+    // The documentation specifies PUT; anything else is not what this code was written to send.
+    if (upload.method.toUpperCase() !== 'PUT') {
+      throw new FileUploadError(`Fireside asked for an upload by ${upload.method}, not PUT, so the file was not sent.`);
+    }
     const onProgress = options.onProgress;
     async function* body() {
       let sent = 0;
@@ -176,12 +180,17 @@ export class FiresideClient {
     // At least 100 KB per second, so a large file is not cut off by a limit meant for small ones.
     const limitMs = Math.max(this.#minUploadTimeoutMs, Math.ceil(file.size / 100));
     const timeout = AbortSignal.timeout(limitMs);
+    const headers = new Headers(upload.headers);
+    for (const name of ['content-length', 'transfer-encoding', 'host']) headers.delete(name);
+    // Signed storage uploads refuse chunked bodies, so the length is sent explicitly.
+    headers.set('Content-Length', String(file.size));
     const init: RequestInit & { duplex: 'half' } = {
-      method: upload.method,
-      // Signed storage uploads refuse chunked bodies, so the length is sent explicitly.
-      headers: { ...upload.headers, 'Content-Length': String(file.size) },
+      method: 'PUT',
+      headers,
       body: body(),
       duplex: 'half',
+      // A redirect would turn the upload into a GET elsewhere, re-sending these headers, and look like success.
+      redirect: 'error',
       signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
     };
 

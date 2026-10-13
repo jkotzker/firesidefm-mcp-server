@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -59,6 +59,16 @@ describe('readMp3', () => {
     expect(await inspect(bytes)).toMatchObject({ channels: 'joint stereo' });
   });
 
+  it('ignores a frame-like pattern at the end of the scanned range, where nothing follows to confirm it', async () => {
+    const noise = Buffer.alloc(70_000, 0x20);
+    noise.set([0xff, 0xfb, 0x50, 0xc0], 64 * 1024 - 100);
+    expect(await inspect(noise)).toBeUndefined();
+  });
+
+  it('accepts a file of a single frame', async () => {
+    expect(await inspect(mp3({ frames: 1 }))).toMatchObject({ channels: 'mono', bitrate_kbps: 64 });
+  });
+
   it('finds no MP3 audio in a WAV file', async () => {
     const wav = Buffer.concat([Buffer.from('RIFF\x24\x00\x00\x00WAVEfmt ', 'latin1'), Buffer.alloc(4000)]);
     expect(await inspect(wav)).toBeUndefined();
@@ -74,5 +84,23 @@ describe('readMp3', () => {
     const noise = Buffer.alloc(4000, 0x20);
     noise.set([0xff, 0xfb, 0x50, 0xc0], 100);
     expect(await inspect(noise)).toBeUndefined();
+  });
+});
+
+// Real encoder output: one second of a generated tone or noise, encoded by ffmpeg 9.0.2 (LAME). The expected
+// values match ffprobe, except that the variable bitrates are this module's rounded averages (ffprobe: 78.4
+// and 88.7 kb/s).
+describe('readMp3 on encoder output', () => {
+  it.each([
+    ['info-cbr-mono-64k.mp3', { channels: 'mono', bitrate_kbps: 64, variable_bitrate: false, sample_rate_hz: 44_100 }],
+    ['xing-vbr-joint-stereo.mp3', { channels: 'joint stereo', bitrate_kbps: 89, variable_bitrate: true, sample_rate_hz: 44_100 }],
+    ['headerless-vbr-mono.mp3', { channels: 'mono', bitrate_kbps: 78, variable_bitrate: true, sample_rate_hz: 44_100 }],
+    ['mpeg2-22khz-mono-32k.mp3', { channels: 'mono', bitrate_kbps: 32, variable_bitrate: false, sample_rate_hz: 22_050 }],
+    ['mpeg25-8khz-mono-16k.mp3', { channels: 'mono', bitrate_kbps: 16, variable_bitrate: false, sample_rate_hz: 8_000 }],
+    ['id3v1-trailer.mp3', { channels: 'mono', bitrate_kbps: 64, variable_bitrate: false, sample_rate_hz: 44_100 }],
+    ['id3v2-picture.mp3', { channels: 'mono', bitrate_kbps: 64, variable_bitrate: false, sample_rate_hz: 44_100 }],
+  ])('reads %s', async (name, expected) => {
+    const bytes = readFileSync(new URL(`fixtures/audio/${name}`, import.meta.url));
+    expect(await inspect(bytes)).toEqual({ ...expected, duration_seconds: 1 });
   });
 });
