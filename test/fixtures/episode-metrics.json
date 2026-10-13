@@ -1,0 +1,40 @@
+{
+  "data": [
+    {
+      "token": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "title": "Episode Title",
+      "subtitle": null,
+      "slug": "episode-slug",
+      "season": 2,
+      "episode_type": "full",
+      "status": "published",
+      "visibility": "public",
+      "members_only": false,
+      "explicit": false,
+      "duration": 1830,
+      "published_at": "2026-03-01T05:00:00Z",
+      "created_at": "2026-02-20T12:00:00Z",
+      "updated_at": "2026-03-01T05:00:00Z",
+      "url": "https://mypodcast.fireside.fm/episode-slug",
+      "preview_url": "https://mypodcast.fireside.fm/preview/x7Kq2mPa",
+      "audio_url": "https://aphid.fireside.fm/d/1437767933/550e8400-e29b-41d4-a716-446655440000/a1b2c3d4-e5f6-7890-abcd-ef1234567890.mp3",
+      "audio_size": 29280000,
+      "downloads": {
+        "1_day": 500,
+        "7_day": 1200,
+        "14_day": 1800,
+        "30_day": 2500,
+        "90_day": 4000,
+        "spotify": 300,
+        "total": 5000
+      }
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 100,
+    "max_per_page": 100,
+    "previous": null,
+    "next": 2
+  }
+}

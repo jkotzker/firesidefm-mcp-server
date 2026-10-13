@@ -1,0 +1,54 @@
+{
+  "data": [
+    {
+      "token": "6a20c700-51d3-4c0a-abe7-da88d972a27c",
+      "title": "Alternating Currents",
+      "subtitle": "Tesla vs. Edison",
+      "slug": "42",
+      "season": 2,
+      "episode_type": "full",
+      "status": "published",
+      "visibility": "public",
+      "members_only": false,
+      "explicit": false,
+      "duration": 3120,
+      "published_at": "2026-09-10T23:14:54Z",
+      "created_at": "2026-09-01T12:00:00Z",
+      "updated_at": "2026-09-10T23:14:54Z",
+      "url": "https://my-podcast.fireside.fm/42",
+      "preview_url": "https://my-podcast.fireside.fm/preview/x7Kq2mPa",
+      "audio_url": "https://aphid.fireside.fm/d/1437767933/550e8400-e29b-41d4-a716-446655440000/6a20c700-51d3-4c0a-abe7-da88d972a27c.mp3",
+      "audio_size": 49920000,
+      "guid": "6a20c700-51d3-4c0a-abe7-da88d972a27c",
+      "artwork_url": "https://media24.fireside.fm/file/fireside-images-2024/podcasts/images/5/550e8400-e29b-41d4-a716-446655440000/cover.jpg?v=3",
+      "transcript_url": "https://media24.fireside.fm/file/fireside-images-2024/podcasts/transcripts/5/550e8400-e29b-41d4-a716-446655440000/episodes/6/6a20c700-51d3-4c0a-abe7-da88d972a27c/transcript.txt",
+      "chapters_url": "https://feeds.fireside.fm/my-podcast/json/episodes/6a20c700-51d3-4c0a-abe7-da88d972a27c/chapters",
+      "player_url": "https://fireside.fm/player/v2/AbCd1234+EfGh5678",
+      "player_embed_code": "<iframe src=\"https://fireside.fm/player/v2/AbCd1234+EfGh5678\" width=\"740\" height=\"200\" frameborder=\"0\" scrolling=\"no\"></iframe>",
+      "soundbite": {
+        "title": "The best bit",
+        "start_time": 90,
+        "duration": 30
+      },
+      "hosts": [
+        {
+          "name": "Jane Doe",
+          "url": "https://janedoe.example.com"
+        }
+      ],
+      "guests": [
+        {
+          "name": "Sam Lee",
+          "url": null
+        }
+      ]
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 100,
+    "max_per_page": 100,
+    "previous": null,
+    "next": null
+  }
+}

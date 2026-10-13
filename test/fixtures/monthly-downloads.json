@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "date": "2026-03-01",
+      "value": 1500
+    },
+    {
+      "date": "2026-02-01",
+      "value": 1200
+    }
+  ],
+  "meta": {
+    "total_downloads": 50000
+  },
+  "pagination": {
+    "page": 1,
+    "per_page": 36,
+    "max_per_page": 36,
+    "previous": null,
+    "next": 2
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "error": {
+    "message": "Token does not have write access. Create a Read/Write API key to make changes.",
+    "code": "write_access_required"
+  }
+}

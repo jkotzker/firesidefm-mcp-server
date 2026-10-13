@@ -1,0 +1,6 @@
+{
+  "error": {
+    "message": "Invalid or missing API token",
+    "code": "unauthorized"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "error": {
+    "message": "slug has already been taken",
+    "code": "validation_failed",
+    "fields": {
+      "slug": [
+        "has already been taken"
+      ]
+    }
+  }
+}
