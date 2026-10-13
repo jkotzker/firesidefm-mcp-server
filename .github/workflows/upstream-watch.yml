@@ -1,0 +1,54 @@
+name: Upstream watch
+
+# Fireside publishes no feed of API changes, so this compares its API documentation, the API version
+# probes and its blog with scripts/fireside-api-baseline.txt once a day and opens an issue when they differ.
+on:
+  schedule:
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Fireside API
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - id: compare
+        run: npx tsx scripts/upstream-watch.ts --report "$RUNNER_TEMP/report.md"
+      - name: Open or update the issue
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REPORT: ${{ runner.temp }}/report.md
+        run: |
+          marker=$(head -n 1 "$REPORT")
+          gh label create upstream-change --color FBCA04 \
+            --description 'The Fireside API documentation changed' --force
+          number=$(gh issue list --label upstream-change --state open --json number --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            gh issue create --title 'Fireside API documentation changed' --label upstream-change --body-file "$REPORT"
+          elif gh issue view "$number" --json body,comments --jq '[.body, .comments[].body] | join("\n")' \
+            | grep -qF -- "$marker"; then
+            echo "Issue #$number already reports this state."
+          else
+            gh issue comment "$number" --body-file "$REPORT"
+          fi

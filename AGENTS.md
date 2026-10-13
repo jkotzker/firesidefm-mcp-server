@@ -73,6 +73,7 @@ There is no linter or formatter; match the surrounding code.
 - CI (`.github/workflows/ci.yml`) runs `npm ci` and `npm run check` on Node 22 and 24; both jobs (`Node 22`, `Node 24`) must pass before a merge. The job names are the required checks, so renaming one means updating the repository ruleset.
 - Pull requests need the maintainer's approval (`.github/CODEOWNERS`) and are merged with a merge commit, not squash or rebase.
 - CI has a read-only token, uses no secrets and publishes nothing; releases are published by hand.
+- The daily `Upstream watch` workflow (`.github/workflows/upstream-watch.yml`) is not a required check. It is the only workflow with a write permission, `issues: write`, which it uses to open its issue.
 
 ## Releasing and keeping files in sync
 
@@ -84,6 +85,15 @@ There is no linter or formatter; match the surrounding code.
 ## Live API checks
 
 `scripts/live-read-check.ts` and `scripts/live-draft-check.ts` run against a real Fireside account; the header comment of each explains how to run it. Run them only when a human explicitly asks. The read check sends only GET requests and refuses a Read/Write key. The draft check creates and edits one draft through `scripts/draft-guard.ts`, which refuses publish and unpublish requests. The draft must then be deleted by hand in the Fireside dashboard, because the API has no delete endpoint. Never write values from a live run into tracked files.
+
+## Upstream API changes
+
+Fireside publishes no feed of API changes. `scripts/upstream-watch.ts` reduces the documentation to facts (endpoints, table rows without their descriptions, JSON key paths, error codes, emphasised figures, a hash of the text), adds unauthenticated API version probes and blog posts that mention the API, and compares them with `scripts/fireside-api-baseline.txt`. The `Upstream watch` workflow runs it daily and opens one issue labelled `upstream-change` when they differ, commenting on that issue for later changes.
+
+- To handle the issue, read the current documentation, classify each change (breaking, new endpoint, new or changed field, error code, limit, wording only), and map it to `src/fireside/schemas.ts`, `client.ts`, the tools, `hintFor`, the README and this file. Propose the work before writing code.
+- The pull request that handles the change regenerates the baseline with `npx tsx scripts/upstream-watch.ts --update`, so the baseline describes what the server supports, and closes the issue. Never edit the baseline by hand.
+- The baseline holds facts only, never Fireside's descriptions, because this repository is public.
+- GitHub disables scheduled workflows in public repositories after 60 days without repository activity; re-enable it from the Actions tab if that happens.
 
 ## Fireside API facts
 
