@@ -37,7 +37,7 @@ export function podcastArg(resolver: Resolver) {
 export const episodeArg = z
   .string()
   .min(1)
-  .describe('Episode token (UUID) or slug, as shown by fireside_list_episodes. For numbered episodes the slug is the episode number.');
+  .describe('Episode token (UUID) or slug, as shown by fireside_list_episodes. Slugs default to the episode number but can be customised (e.g. s02e04); check fireside_list_episodes when unsure.');
 
 export function pageArgs(maxPerPage: number, defaultPerPage: number) {
   return {

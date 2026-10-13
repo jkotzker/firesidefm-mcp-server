@@ -33,7 +33,7 @@ claude mcp add fireside \
 
 ## Tools
 
-Podcasts and episodes can be named by token or by slug. For numbered episodes the slug is the episode number, so "episode 42" works.
+Podcasts and episodes can be named by token or by slug. An episode's slug defaults to its episode number, so "episode 42" works unless the slug was customised in the dashboard (for example `s02e04`).
 
 | Tool | Needs Read/Write key | What it does |
 |---|---|---|

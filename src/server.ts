@@ -20,7 +20,7 @@ export function createServer(deps: ServerDeps): McpServer {
       capabilities: { tools: {} },
       instructions:
         'Tools for a Fireside.fm podcast hosting account. Podcasts and episodes can be named by token or slug ' +
-        '(an episode number is its slug). Audio cannot be uploaded through the API. ' +
+        '(episode slugs default to the episode number but are often customised, e.g. s02e04). Audio cannot be uploaded through the API. ' +
         (deps.writeTools
           ? 'Publishing is public and may post to connected social accounts, so confirm before publishing.'
           : 'This server is read-only: the API key is Read Only or FIRESIDE_READ_ONLY is set.'),
