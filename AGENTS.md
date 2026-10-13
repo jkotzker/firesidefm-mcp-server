@@ -67,6 +67,13 @@ There is no linter or formatter; match the surrounding code.
 - For write tools, assert on the recorded requests (method, path, body), not just the result.
 - A new test must fail when the change it covers is reverted.
 
+## Contributing changes
+
+- `main` is protected: no direct or force pushes. Every change goes through a pull request.
+- CI (`.github/workflows/ci.yml`) runs `npm ci` and `npm run check` on Node 22 and 24; both jobs (`Node 22`, `Node 24`) must pass before a merge. The job names are the required checks, so renaming one means updating the repository ruleset.
+- Pull requests need the maintainer's approval (`.github/CODEOWNERS`) and are merged with a merge commit, not squash or rebase.
+- CI has a read-only token, uses no secrets and publishes nothing; releases are published by hand.
+
 ## Releasing and keeping files in sync
 
 - Version: `package.json`, `src/version.ts`, and `server.json` (the top-level `version` and `packages[0].version`) change together. `test/version.test.ts` checks this, and that the `server.json` description is at most 100 characters.
