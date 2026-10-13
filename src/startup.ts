@@ -44,6 +44,13 @@ export async function startup(
       `Connected to Fireside as ${me.data.name} with a ${readWrite ? 'Read/Write' : 'Read Only'} key` +
         `${access === 'read_only_setting' ? ' (write tools disabled by FIRESIDE_READ_ONLY)' : ''}.`,
     );
+    if (access === 'read_write') {
+      notices.push(
+        config.uploadDirs
+          ? `Files can be uploaded from ${config.uploadDirs.join(', ')}.`
+          : 'File uploads are off: set FIRESIDE_UPLOAD_DIRS to the directories whose files may be uploaded.',
+      );
+    }
   } catch (error) {
     if (error instanceof FiresideApiError && error.details.status === 401) {
       throw new ConfigError(`Fireside rejected FIRESIDE_API_TOKEN.\n${describeError(error)}`);
@@ -54,5 +61,6 @@ export async function startup(
     );
   }
 
-  return { deps: { client, resolver: new Resolver(client, config.defaultPodcast), access }, notices };
+  const resolver = new Resolver(client, config.defaultPodcast);
+  return { deps: { client, resolver, access, uploadDirs: config.uploadDirs ?? [] }, notices };
 }

@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { Client, type CallToolResult } from '@modelcontextprotocol/client';
@@ -68,12 +69,16 @@ async function connect(env: Record<string, string>) {
 }
 
 describe('built server over stdio', () => {
-  it('starts with a Read/Write key, offers all tools, and answers a call', async () => {
-    const client = await connect({ FIRESIDE_API_TOKEN: TOKEN, FIRESIDE_PODCAST: 'my-podcast' });
+  it('starts with a Read/Write key and upload directories, offers all tools, and answers a call', async () => {
+    const client = await connect({
+      FIRESIDE_API_TOKEN: TOKEN,
+      FIRESIDE_PODCAST: 'my-podcast',
+      FIRESIDE_UPLOAD_DIRS: tmpdir(),
+    });
     try {
       expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(11);
+      expect(tools).toHaveLength(12);
 
       const result = (await client.callTool({ name: 'fireside_get_episode', arguments: { episode: '42' } })) as CallToolResult;
       expect(result.isError).toBeFalsy();

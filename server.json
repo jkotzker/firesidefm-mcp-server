@@ -2,18 +2,18 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.jkotzker/firesidefm-mcp-server",
   "title": "Fireside.fm (unofficial)",
-  "description": "Unofficial server for the Fireside.fm podcast API: podcasts, episodes, downloads and drafts.",
+  "description": "Unofficial server for the Fireside.fm podcast API: podcasts, episodes, uploads and downloads.",
   "repository": {
     "url": "https://github.com/jkotzker/firesidefm-mcp-server",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "firesidefm-mcp-server",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -38,6 +38,12 @@
           "isRequired": false,
           "format": "boolean",
           "default": "false"
+        },
+        {
+          "name": "FIRESIDE_UPLOAD_DIRS",
+          "description": "Directories whose files may be uploaded as episode audio, cover art or transcripts, separated as in PATH. Uploads are off when unset.",
+          "isRequired": false,
+          "format": "string"
         }
       ]
     }

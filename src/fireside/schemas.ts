@@ -1,6 +1,6 @@
 import * as z from 'zod/v4';
 
-// Response shapes as documented at https://fireside.fm/docs/api (captured 2026-10-12).
+// Response shapes as documented at https://fireside.fm/docs/api (captured 2026-10-13).
 // Objects are loose: fields the docs don't list yet pass through instead of failing the parse,
 // because the API is young and still growing. Documented fields are typed as documented.
 
@@ -68,6 +68,9 @@ export const episodeSchema = z.looseObject({
   preview_url: z.string(),
   audio_url: nullableString,
   audio_size: z.number().int().nullable(),
+  // Documented as processing, ready, failed or none; a string so that a new status does not break every read.
+  audio_status: z.string(),
+  audio_error: nullableString,
   guid: z.string(),
   // Documented as the podcast's artwork when the episode has none, and podcast artwork can be null.
   artwork_url: nullableString,
@@ -112,6 +115,16 @@ export const monthlyDownloadsSchema = z.looseObject({
   value: z.number().int(),
 });
 
+export const uploadSchema = z.looseObject({
+  kind: z.string(),
+  upload_url: z.string(),
+  method: z.string(),
+  headers: z.record(z.string(), z.string()),
+  file_url: z.string(),
+  expires_at: z.string(),
+});
+export type Upload = z.infer<typeof uploadSchema>;
+
 export const errorBodySchema = z.object({
   error: z.looseObject({
     message: z.string(),
@@ -119,6 +132,8 @@ export const errorBodySchema = z.object({
     // Documented as field → list of messages; anything else is kept and stringified when shown.
     fields: z.record(z.string(), z.unknown()).optional(),
   }),
+  // An upload_failed error carries the episode, whose other changes were saved.
+  data: z.unknown().optional(),
 });
 
 export function itemEnvelope<T extends z.ZodType>(item: T) {

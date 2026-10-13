@@ -10,7 +10,7 @@ export const EP = '6a20c700-51d3-4c0a-abe7-da88d972a27c';
 /** `writeTools: true` is shorthand for `access: 'read_write'`; the default is a Read Only key. */
 export function serverWith(
   routes: Route[],
-  options: { writeTools?: boolean; access?: Access; defaultPodcast?: string } = {},
+  options: { writeTools?: boolean; access?: Access; defaultPodcast?: string; uploadDirs?: readonly string[] } = {},
 ) {
   const fake = fakeFetch(routes);
   const client = new FiresideClient({ token: TOKEN, fetch: fake.fetch, sleep: async () => {} });
@@ -18,6 +18,7 @@ export function serverWith(
     client,
     resolver: new Resolver(client, options.defaultPodcast),
     access: options.writeTools ? 'read_write' : (options.access ?? 'read_only_key'),
+    uploadDirs: options.uploadDirs ?? [],
   };
   return { factory: () => createServer(deps), requests: fake.requests };
 }

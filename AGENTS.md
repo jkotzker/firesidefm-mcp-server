@@ -4,7 +4,7 @@ Instructions for coding agents working in this repository. User-facing documenta
 
 ## Project
 
-An unofficial stdio [MCP](https://modelcontextprotocol.io) server for the [Fireside.fm](https://fireside.fm) podcast hosting API, written in TypeScript and published to npm as `firesidefm-mcp-server` and to the MCP Registry as `io.github.jkotzker/firesidefm-mcp-server`. It exposes 7 read tools and 4 write tools over the 11 endpoints the API documents at <https://fireside.fm/docs/api>.
+An unofficial stdio [MCP](https://modelcontextprotocol.io) server for the [Fireside.fm](https://fireside.fm) podcast hosting API, written in TypeScript and published to npm as `firesidefm-mcp-server` and to the MCP Registry as `io.github.jkotzker/firesidefm-mcp-server`. It exposes 7 read tools and 5 write tools over the 12 endpoints the API documents at <https://fireside.fm/docs/api>.
 
 ## Commands
 
@@ -31,16 +31,17 @@ There is no linter or formatter; match the surrounding code.
 ## Architecture
 
 - `src/cli.ts`: the `bin` entry. Runs `startup(process.env)`, writes its notices to stderr, then `serveStdio(() => createServer(deps))`. Stdout carries only the protocol; anything human-readable goes to stderr.
-- `src/config.ts`: reads `FIRESIDE_API_TOKEN` (required), `FIRESIDE_PODCAST`, `FIRESIDE_READ_ONLY` and `FIRESIDE_API_BASE_URL` (a test override). Bad configuration throws `ConfigError`, which exits with code 1.
+- `src/config.ts`: reads `FIRESIDE_API_TOKEN` (required), `FIRESIDE_PODCAST`, `FIRESIDE_READ_ONLY`, `FIRESIDE_UPLOAD_DIRS` and `FIRESIDE_API_BASE_URL` (a test override). Bad configuration throws `ConfigError`, which exits with code 1.
 - `src/startup.ts`: checks the key with `GET /me` on a short budget (one attempt, 10 s) and decides an `Access` value. A 401 is fatal; any other failure starts the server read-only (`unverified`).
-- `src/server.ts`: `createServer(deps)` sets the server instructions and registers the read tools, plus the write tools only when `access === 'read_write'`.
+- `src/server.ts`: `createServer(deps)` sets the server instructions and registers the read tools, plus the write tools only when `access === 'read_write'`, and `fireside_upload_file` only when upload directories are configured as well.
 - `src/fireside/`: the HTTP layer, with no MCP knowledge. `client.ts` has one `FiresideClient` method per endpoint, with per-attempt timeouts and 429 retries that honour `Retry-After`. `schemas.ts` holds the documented response shapes. `errors.ts` defines `FiresideApiError` and `FiresideResponseShapeError`.
-- `src/tools/`: the MCP layer. `read.ts` and `write.ts` register the tools. `common.ts` has `ok`, `guarded`, the shared argument builders and `pick`. `resolve.ts` holds `Resolver`, which turns podcast and episode slugs into the tokens the API requires. `shape.ts` has the trimmed summaries returned by list and write tools. `errors.ts` turns failures into text for the model (`describeError`, `ToolInputError`).
+- `src/tools/`: the MCP layer. `read.ts`, `write.ts` and `upload.ts` register the tools. `common.ts` has `ok`, `guarded`, the shared argument builders and `pick`. `resolve.ts` holds `Resolver`, which turns podcast and episode slugs into the tokens the API requires. `shape.ts` has the trimmed summaries returned by list and write tools. `errors.ts` turns failures into text for the model (`describeError`, `ToolInputError`).
 - `src/version.ts`: server name and version.
 
 ## Rules
 
 - Write tools are registered only when the key was verified as Read/Write at startup and `FIRESIDE_READ_ONLY` is off. Never register them on any other path.
+- `fireside_upload_file` sends only files whose resolved path (after following symbolic links) is inside `FIRESIDE_UPLOAD_DIRS`, and is not registered without it. The file goes to the signed `upload_url` without the Fireside key; neither that URL nor the storage service's error body appears in output.
 - Tool handlers never throw. Wrap every handler body in `guarded(...)`, which turns failures into `isError` results.
 - The API key must never appear in output or error text. `config.ts` rejects keys with characters a header cannot carry, and `FiresideClient` redacts the key from transport errors. Keep both.
 - Tool input schemas are `z.strictObject`. Response schemas are `z.looseObject`, so new upstream fields pass through; a documented field with the wrong shape raises `FiresideResponseShapeError`.
@@ -98,6 +99,9 @@ Fireside publishes no feed of API changes. `scripts/upstream-watch.ts` reduces t
 ## Fireside API facts
 
 - The API is young and still changing; check <https://fireside.fm/docs/api> before relying on an endpoint's shape.
-- No delete endpoint, no audio, artwork, transcript or chapter upload, and no podcast settings changes.
+- No delete endpoint, no chapter upload, and no podcast settings changes.
+- Files upload in two steps: Upload a File returns a signed URL, the file is PUT there with an explicit `Content-Length` (signed storage refuses chunked bodies), and its `file_url` is attached with Create or Update Episode. Audio transfers in the background (`audio_status`); a cover or transcript that fails returns 422 `upload_failed` with the episode's other changes saved, so a create must not be repeated.
+- The dashboard (not the API docs) suggests mono, 64–96 kb/s, 44.1 kHz for MP3s, and shows the plan's MP3 size limit, which the API does not expose. `src/tools/mp3.ts` reads these properties from the file's frame and Xing/Info/VBRI headers; `fireside_upload_file` refuses non-MP3 audio, and stops a file that differs from the suggestions unless `accept_audio_specs` is set.
+- A key can be switched between Read Only and Read/Write in place; the server picks its tools at startup, so it needs a restart.
 - Publishing can also post to the podcast's connected social accounts, a per-episode dashboard setting the API cannot read.
 - Rate limit: 120 requests per minute per key.

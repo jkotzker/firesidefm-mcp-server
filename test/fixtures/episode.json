@@ -18,6 +18,8 @@
     "preview_url": "https://my-podcast.fireside.fm/preview/x7Kq2mPa",
     "audio_url": "https://aphid.fireside.fm/d/1437767933/550e8400-e29b-41d4-a716-446655440000/6a20c700-51d3-4c0a-abe7-da88d972a27c.mp3",
     "audio_size": 49920000,
+    "audio_status": "ready",
+    "audio_error": null,
     "guid": "6a20c700-51d3-4c0a-abe7-da88d972a27c",
     "artwork_url": "https://media24.fireside.fm/file/fireside-images-2024/podcasts/images/5/550e8400-e29b-41d4-a716-446655440000/cover.jpg?v=3",
     "transcript_url": "https://media24.fireside.fm/file/fireside-images-2024/podcasts/transcripts/5/550e8400-e29b-41d4-a716-446655440000/episodes/6/6a20c700-51d3-4c0a-abe7-da88d972a27c/transcript.txt",

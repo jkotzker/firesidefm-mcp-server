@@ -1,7 +1,7 @@
-import type * as z from 'zod/v4';
+import * as z from 'zod/v4';
 
 import { SERVER_NAME, SERVER_VERSION } from '../version.js';
-import { FiresideApiError, FiresideResponseShapeError } from './errors.js';
+import { FileUploadError, FiresideApiError, FiresideResponseShapeError } from './errors.js';
 import {
   episodeMetricsSchema,
   episodeSchema,
@@ -11,6 +11,8 @@ import {
   meSchema,
   monthlyDownloadsEnvelope,
   podcastSchema,
+  type Upload,
+  uploadSchema,
 } from './schemas.js';
 
 export const DEFAULT_BASE_URL = 'https://fireside.fm/api/v1/';
@@ -24,6 +26,20 @@ export interface EpisodeFields {
   season?: number | null | undefined;
   episode_type?: 'full' | 'trailer' | 'bonus' | undefined;
   explicit?: boolean | undefined;
+  /** A `file_url` from Upload a File. */
+  audio_file_url?: string | undefined;
+  cover_file_url?: string | undefined;
+  transcript_file_url?: string | undefined;
+}
+
+export type FileKind = 'audio' | 'cover' | 'transcript';
+
+/** Describes a file for Upload a File, which checks it against the plan's limits before anything is sent. */
+export interface UploadRequest {
+  kind: FileKind;
+  filename: string;
+  byte_size: number;
+  content_type: string;
 }
 
 export interface PublishOptions {
@@ -48,6 +64,8 @@ export interface FiresideClientOptions {
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** Per-attempt limit on waiting for Fireside to respond. */
   requestTimeoutMs?: number;
+  /** Shortest time allowed for sending a file; larger files get longer. */
+  minUploadTimeoutMs?: number;
 }
 
 type Query = Record<string, string | number | undefined>;
@@ -60,6 +78,7 @@ export class FiresideClient {
   readonly #maxRetryAfter: number;
   readonly #sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly #timeoutMs: number;
+  readonly #minUploadTimeoutMs: number;
 
   constructor(options: FiresideClientOptions) {
     this.#token = options.token;
@@ -69,6 +88,7 @@ export class FiresideClient {
     this.#maxRetryAfter = options.maxRetryAfterSeconds ?? 30;
     this.#sleep = options.sleep ?? abortableSleep;
     this.#timeoutMs = options.requestTimeoutMs ?? 15_000;
+    this.#minUploadTimeoutMs = options.minUploadTimeoutMs ?? 60_000;
   }
 
   getMe(signal?: AbortSignal) {
@@ -123,6 +143,68 @@ export class FiresideClient {
     return this.#request('POST', `${episodePath(podcast, episode)}/unpublish`, itemEnvelope(episodeSchema), {
       signal,
     });
+  }
+
+  createUpload(podcast: string, request: UploadRequest, signal?: AbortSignal) {
+    return this.#request('POST', `podcasts/${seg(podcast)}/uploads`, itemEnvelope(uploadSchema), {
+      body: request,
+      signal,
+    });
+  }
+
+  /**
+   * Sends a file to the signed URL from createUpload. That URL carries its own authorisation, so the
+   * Fireside key is never sent with it. `onProgress` is called with the bytes sent so far.
+   */
+  async sendFile(
+    upload: Pick<Upload, 'upload_url' | 'method' | 'headers'>,
+    file: { chunks: AsyncIterable<Uint8Array>; size: number },
+    options: { signal?: AbortSignal | undefined; onProgress?: ((sent: number) => void) | undefined } = {},
+  ): Promise<void> {
+    if (!URL.canParse(upload.upload_url) || new URL(upload.upload_url).protocol !== 'https:') {
+      throw new FileUploadError('Fireside returned an upload address that is not https, so the file was not sent.');
+    }
+    const onProgress = options.onProgress;
+    async function* body() {
+      let sent = 0;
+      for await (const chunk of file.chunks) {
+        sent += chunk.byteLength;
+        onProgress?.(sent);
+        yield chunk;
+      }
+    }
+    // At least 100 KB per second, so a large file is not cut off by a limit meant for small ones.
+    const limitMs = Math.max(this.#minUploadTimeoutMs, Math.ceil(file.size / 100));
+    const timeout = AbortSignal.timeout(limitMs);
+    const init: RequestInit & { duplex: 'half' } = {
+      method: upload.method,
+      // Signed storage uploads refuse chunked bodies, so the length is sent explicitly.
+      headers: { ...upload.headers, 'Content-Length': String(file.size) },
+      body: body(),
+      duplex: 'half',
+      signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
+    };
+
+    let response: Response;
+    try {
+      response = await this.#fetch(upload.upload_url, init);
+    } catch (cause) {
+      if (options.signal?.aborted) throw cause;
+      if (timeout.aborted) {
+        throw new FileUploadError(`The upload did not finish within ${Math.round(limitMs / 1000)} seconds.`);
+      }
+      // The signed URL is a credential for this one file; keep it out of error text.
+      throw new FileUploadError(`Could not send the file: ${describe(cause).replaceAll(upload.upload_url, '[upload URL]')}`);
+    }
+    const text = await response.text().catch(() => '');
+    if (!response.ok) {
+      // Storage services answer in XML; only the error code is shown, since the rest can echo the signature.
+      const code = /<Code>([^<]{1,64})<\/Code>/.exec(text)?.[1];
+      throw new FileUploadError(
+        `The storage service refused the file (HTTP ${response.status}${code ? `, ${code}` : ''}).`,
+        response.status,
+      );
+    }
   }
 
   getEpisodeMetrics(podcast: string, page: PageOptions = {}, signal?: AbortSignal) {
@@ -238,6 +320,8 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+const savedEpisodeSchema = z.looseObject({ token: z.string(), slug: z.string() });
+
 function toApiError(response: Response, body: unknown, method: string, path: string): FiresideApiError {
   const parsed = errorBodySchema.safeParse(body);
   // Fireside documents Retry-After in whole seconds; anything else is ignored.
@@ -248,6 +332,8 @@ function toApiError(response: Response, body: unknown, method: string, path: str
     const { message, code, fields } = parsed.data.error;
     if (code !== undefined) details.code = code;
     if (fields !== undefined) details.fields = fields;
+    const saved = savedEpisodeSchema.safeParse(parsed.data.data);
+    if (code === 'upload_failed' && saved.success) details.savedEpisode = { token: saved.data.token, slug: saved.data.slug };
     return new FiresideApiError(message, details);
   }
   const snippet = (typeof body === 'string' ? body : body === undefined ? '' : JSON.stringify(body)).slice(0, 300);

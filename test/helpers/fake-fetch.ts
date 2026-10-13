@@ -13,7 +13,7 @@ export interface RecordedRequest {
 
 export interface Route {
   method: string;
-  /** Path relative to the API base, e.g. `podcasts/abc/episodes`. */
+  /** Path relative to the API base, e.g. `podcasts/abc/episodes`, or an absolute URL without its query for other hosts. */
   path: string;
   status?: number;
   body?: unknown;
@@ -36,9 +36,14 @@ export function fakeFetch(routes: Route[], baseUrl = 'https://fireside.fm/api/v1
       method,
       url,
       headers: new Headers(init?.headers),
-      body: typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody,
+      // A streamed body is read in full, as a real upload would be.
+      body: typeof rawBody === 'string' ? JSON.parse(rawBody) : isStream(rawBody) ? await collect(rawBody) : rawBody,
     });
-    const path = url.pathname.slice(new URL(baseUrl).pathname.length);
+    const base = new URL(baseUrl);
+    const path =
+      url.origin === base.origin && url.pathname.startsWith(base.pathname)
+        ? url.pathname.slice(base.pathname.length)
+        : `${url.origin}${url.pathname}`;
     const index = remaining.findIndex((r) => r.method === method && r.path === path);
     if (index === -1) throw new Error(`fakeFetch: no route for ${method} ${path}`);
     const [route] = remaining.splice(index, 1);
@@ -50,4 +55,14 @@ export function fakeFetch(routes: Route[], baseUrl = 'https://fireside.fm/api/v1
   };
 
   return { fetch, requests };
+}
+
+function isStream(body: unknown): body is AsyncIterable<Uint8Array> {
+  return typeof body === 'object' && body !== null && Symbol.asyncIterator in body;
+}
+
+async function collect(body: AsyncIterable<Uint8Array>): Promise<Buffer> {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of body) chunks.push(chunk);
+  return Buffer.concat(chunks);
 }

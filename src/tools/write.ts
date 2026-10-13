@@ -18,6 +18,20 @@ const episodeFields = {
   season: z.number().int().min(0).nullable().optional().describe('Season number, from 0. null clears it.'),
   episode_type: z.enum(['full', 'trailer', 'bonus']).optional().describe('full, trailer, or bonus.'),
   explicit: z.boolean().optional().describe('Whether the episode has explicit content.'),
+  audio_file_url: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'MP3 audio: a file_url from fireside_upload_file. It transfers in the background; fireside_get_episode shows ' +
+        'audio_status. Sending it again after a failed transfer retries it.',
+    ),
+  cover_file_url: z.string().min(1).optional().describe('Episode cover art: a file_url from fireside_upload_file.'),
+  transcript_file_url: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Plain-text transcript: a file_url from fireside_upload_file.'),
 };
 const FIELD_KEYS = Object.keys(episodeFields) as (keyof typeof episodeFields)[];
 
@@ -30,8 +44,8 @@ export function registerWriteTools(server: McpServer, { client, resolver }: Tool
       title: 'Create draft episode',
       description:
         "Create a private draft episode, starting from the podcast's episode defaults. Nothing is published. " +
-        'Audio cannot be uploaded through the API: the user adds it in the Fireside dashboard before publishing. ' +
-        'Without a slug, the next episode number is used.',
+        'Audio, cover art and a transcript can be attached with file_url values from fireside_upload_file; an ' +
+        'episode needs audio before it can be published. Without a slug, the next episode number is used.',
       inputSchema: z.strictObject({ podcast: podcastArg(resolver), ...episodeFields }),
       ...output,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -49,7 +63,8 @@ export function registerWriteTools(server: McpServer, { client, resolver }: Tool
     {
       title: 'Update episode',
       description:
-        "Change an episode's title, subtitle, slug, show notes, season, type or explicit flag, leaving other fields alone. " +
+        "Change an episode's title, subtitle, slug, show notes, season, type or explicit flag, or its audio, cover " +
+        'art or transcript (file_url values from fireside_upload_file), leaving other fields alone. ' +
         'Changes to a published episode go live immediately, and a new slug changes its public URL. ' +
         'Release date and visibility change only through fireside_publish_episode and fireside_unpublish_episode.',
       inputSchema: z.strictObject({ podcast: podcastArg(resolver), episode: episodeArg, ...episodeFields }),
