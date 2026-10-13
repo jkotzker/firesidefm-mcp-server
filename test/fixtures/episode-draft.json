@@ -18,6 +18,8 @@
     "preview_url": "https://my-podcast.fireside.fm/preview/x7Kq2mPa",
     "audio_url": null,
     "audio_size": null,
+    "audio_status": "none",
+    "audio_error": null,
     "guid": "6a20c700-51d3-4c0a-abe7-da88d972a27c",
     "artwork_url": "https://media24.fireside.fm/file/fireside-images-2024/podcasts/images/5/550e8400-e29b-41d4-a716-446655440000/cover.jpg?v=3",
     "transcript_url": null,

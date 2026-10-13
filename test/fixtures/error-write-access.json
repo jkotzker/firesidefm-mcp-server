@@ -1,6 +1,6 @@
 {
   "error": {
-    "message": "Token does not have write access. Create a Read/Write API key to make changes.",
+    "message": "Token does not have write access. Change this key to Read/Write under Account > API Keys to make changes.",
     "code": "write_access_required"
   }
 }

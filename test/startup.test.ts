@@ -1,3 +1,6 @@
+import { homedir } from 'node:os';
+import { delimiter, join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { ConfigError, loadConfig } from '../src/config.js';
@@ -50,6 +53,20 @@ describe('loadConfig', () => {
     expect((error as Error).message).not.toContain(TOKEN.slice(0, 20));
   });
 
+  it('reads FIRESIDE_UPLOAD_DIRS as a path list, expanding ~', () => {
+    const { config } = loadConfig({
+      FIRESIDE_API_TOKEN: TOKEN,
+      FIRESIDE_UPLOAD_DIRS: ` /podcast/audio${delimiter}~/Episodes/ ${delimiter}`,
+    });
+    expect(config.uploadDirs).toEqual(['/podcast/audio', join(homedir(), 'Episodes')]);
+  });
+
+  it('rejects a relative upload directory', () => {
+    expect(() => loadConfig({ FIRESIDE_API_TOKEN: TOKEN, FIRESIDE_UPLOAD_DIRS: 'episodes' })).toThrow(
+      /absolute directories, not "episodes"/,
+    );
+  });
+
   it('normalises FIRESIDE_API_BASE_URL and warns that it is in use', () => {
     const { config, warnings } = loadConfig({ FIRESIDE_API_TOKEN: TOKEN, FIRESIDE_API_BASE_URL: 'http://127.0.0.1:9/api/v1' });
     expect(config.apiBaseUrl).toBe('http://127.0.0.1:9/api/v1/');
@@ -69,7 +86,18 @@ describe('startup', () => {
   it('offers write tools for a Read/Write key', async () => {
     const { deps, notices } = await start({}, [{ method: 'GET', path: 'me', body: meWith('read_and_write') }]);
     expect(deps.access).toBe('read_write');
+    expect(deps.uploadDirs).toEqual([]);
     expect(notices.join('\n')).toContain('Read/Write key');
+    expect(notices.join('\n')).toContain('File uploads are off: set FIRESIDE_UPLOAD_DIRS');
+  });
+
+  it('passes upload directories on and names them', async () => {
+    const { deps, notices } = await start({ FIRESIDE_UPLOAD_DIRS: '/podcast/audio' }, [
+      { method: 'GET', path: 'me', body: meWith('read_and_write') },
+    ]);
+    expect(deps.uploadDirs).toEqual(['/podcast/audio']);
+    expect(notices.join('\n')).toContain('Files can be uploaded from /podcast/audio.');
+    expect(notices.join('\n')).toContain('lists /podcast/audio, which is not an existing directory');
   });
 
   it('withholds write tools for a Read Only key', async () => {

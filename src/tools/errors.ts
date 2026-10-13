@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 
-import { FiresideApiError, FiresideResponseShapeError } from '../fireside/errors.js';
+import { FileUploadError, FiresideApiError, FiresideResponseShapeError } from '../fireside/errors.js';
 
 /** An error whose message is already written for the model and the user. */
 export class ToolInputError extends Error {
@@ -13,14 +13,26 @@ export function errorResult(error: unknown): CallToolResult {
 
 export function describeError(error: unknown): string {
   if (error instanceof ToolInputError) return error.message;
+  if (error instanceof FileUploadError) {
+    // A retry asks for a new signed address, which helps after no response, a server error or an expired
+    // signature (403); any other refusal is about the file and will happen again.
+    const { status } = error;
+    const retry = status === undefined || status >= 500 || status === 403;
+    return `${error.message}\nNothing was attached to an episode. ${
+      retry
+        ? 'Try fireside_upload_file again.'
+        : 'Trying again with the same file is unlikely to help; tell the user what the storage service said.'
+    }`;
+  }
   if (error instanceof FiresideResponseShapeError) {
-    return error.request.method === 'GET' ? error.message : `${error.message}\n${APPLIED_HINT}`;
+    if (error.request.method === 'GET') return error.message;
+    return `${error.message}\n${isUploadRequest(error.request.path) ? UPLOAD_RETRY_HINT : APPLIED_HINT}`;
   }
   if (!(error instanceof FiresideApiError)) {
     return `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
   }
 
-  const { status, code, fields, retryAfterSeconds, method } = error.details;
+  const { status, code, fields, retryAfterSeconds, method, savedEpisode } = error.details;
   const label = [status === undefined ? undefined : `HTTP ${status}`, code].filter(Boolean).join(', ');
   const lines = [`Fireside API error${label ? ` (${label})` : ''}: ${error.message}`];
   if (fields) {
@@ -28,7 +40,13 @@ export function describeError(error: unknown): string {
       lines.push(`- ${field}: ${Array.isArray(messages) ? messages.join('; ') : JSON.stringify(messages)}`);
     }
   }
-  const hint = outcomeUnknown(method, status) ? MAYBE_APPLIED_HINT : hintFor(status, code, retryAfterSeconds);
+  const hint = outcomeUnknown(method, status)
+    ? isUploadRequest(error.details.path)
+      ? UPLOAD_RETRY_HINT
+      : MAYBE_APPLIED_HINT
+    : code === 'upload_failed'
+      ? uploadFailedHint(method, savedEpisode)
+      : hintFor(status, code, retryAfterSeconds);
   if (hint) lines.push(hint);
   return lines.join('\n');
 }
@@ -40,19 +58,46 @@ const MAYBE_APPLIED_HINT =
   'fireside_list_episodes before trying again: episodes cannot be deleted through the API, so repeating a create ' +
   'leaves a duplicate draft.';
 
+// Asking for an upload changes no episode, so whatever happened to it, trying again is safe.
+const UPLOAD_RETRY_HINT = 'Nothing was attached to an episode. Try fireside_upload_file again.';
+
+function isUploadRequest(path: string): boolean {
+  return path.endsWith('/uploads');
+}
+
 /** A change that failed with no response, or whose successful response was cut off, may still have been applied. */
 function outcomeUnknown(method: string, status: number | undefined): boolean {
   return method !== 'GET' && (status === undefined || (status >= 200 && status < 300));
 }
 
+/**
+ * Fireside could not process the file, but saves the request's other changes, so a repeated create would
+ * leave a second draft. The file itself is the likely problem, so sending it again is no fix.
+ */
+function uploadFailedHint(method: string, saved: { token: string; slug: string } | undefined): string {
+  const episode = saved ? `episode ${saved.slug} (token ${saved.token})` : 'the episode';
+  const check = 'Check the file with the user; attach a corrected one with fireside_update_episode.';
+  return method === 'POST'
+    ? `Fireside could not process the file, so it was not attached, but ${episode} was created with the other ` +
+        `fields. Do not repeat fireside_create_episode, which would create a second draft. ${check}`
+    : `Fireside could not process the file, so it was not attached to ${episode}; any other changes in the same ` +
+        `call were saved. ${check}`;
+}
+
 function hintFor(status: number | undefined, code: string | undefined, retryAfter: number | undefined): string | undefined {
   switch (code) {
     case 'write_access_required':
-      return 'This API key is Read Only. Changes need a Read/Write key, created at https://app.fireside.fm/api_tokens.';
+      return (
+        'This API key is Read Only. Change it to Read/Write under Account > API Keys ' +
+        '(https://app.fireside.fm/api_tokens), then restart this server.'
+      );
     case 'podcast_inactive':
       return 'The podcast is on hiatus, suspended, or taken down: its episodes can be read but not changed.';
     case 'audio_required':
-      return 'Upload the episode audio in the Fireside dashboard first; the API cannot upload audio.';
+      return (
+        'Attach audio first, with fireside_upload_file if this server offers it, or in the Fireside dashboard. ' +
+        'Audio transfers in the background; fireside_get_episode shows its audio_status.'
+      );
     case 'validation_failed':
       return 'Nothing was saved. Correct the fields above and try again.';
   }

@@ -19,6 +19,8 @@
       "preview_url": "https://mypodcast.fireside.fm/preview/x7Kq2mPa",
       "audio_url": "https://aphid.fireside.fm/d/1437767933/550e8400-e29b-41d4-a716-446655440000/a1b2c3d4-e5f6-7890-abcd-ef1234567890.mp3",
       "audio_size": 29280000,
+      "audio_status": "ready",
+      "audio_error": null,
       "downloads": {
         "1_day": 500,
         "7_day": 1200,

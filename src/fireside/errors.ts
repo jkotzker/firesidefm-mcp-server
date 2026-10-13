@@ -13,6 +13,8 @@ export class FiresideApiError extends Error {
       fields?: Record<string, unknown>;
       /** Seconds Fireside asked us to wait, from `Retry-After` on a 429. */
       retryAfterSeconds?: number;
+      /** The episode an `upload_failed` error says was saved apart from the file. */
+      savedEpisode?: { token: string; slug: string };
       method: string;
       path: string;
     },
@@ -36,5 +38,18 @@ export class FiresideResponseShapeError extends Error {
         : `Fireside accepted the change (HTTP ${status}), but its response does not match the documented shape: `) +
         `${issues.join('; ')}. The API may have changed; please report this.`,
     );
+  }
+}
+
+/** Sending a file to its signed upload URL failed, so nothing was attached to an episode. */
+export class FileUploadError extends Error {
+  override readonly name = 'FileUploadError';
+
+  constructor(
+    message: string,
+    /** HTTP status from the storage service; undefined when the upload got no response. */
+    readonly status?: number,
+  ) {
+    super(message);
   }
 }

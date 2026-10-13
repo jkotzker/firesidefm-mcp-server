@@ -1,9 +1,14 @@
+import { homedir } from 'node:os';
+import { delimiter, isAbsolute, resolve } from 'node:path';
+
 export interface Config {
   apiToken: string;
   /** Podcast token or slug used when a tool call names no podcast. */
   defaultPodcast?: string;
   /** Register only read tools, even for a Read/Write key. */
   readOnly: boolean;
+  /** Directories whose files may be uploaded; uploads are off without them. */
+  uploadDirs?: string[];
   /** Overrides the API base URL; meant for tests against a local stand-in. */
   apiBaseUrl?: string;
 }
@@ -39,6 +44,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): { config: Config; warnings: 
   const config: Config = { apiToken, readOnly: parseBoolean(env.FIRESIDE_READ_ONLY, 'FIRESIDE_READ_ONLY') };
   const defaultPodcast = env.FIRESIDE_PODCAST?.trim();
   if (defaultPodcast) config.defaultPodcast = defaultPodcast;
+  const uploadDirs = parseDirs(env.FIRESIDE_UPLOAD_DIRS);
+  if (uploadDirs.length > 0) config.uploadDirs = uploadDirs;
   const apiBaseUrl = env.FIRESIDE_API_BASE_URL?.trim();
   if (apiBaseUrl) {
     if (!URL.canParse(apiBaseUrl) || !/^https?:$/.test(new URL(apiBaseUrl).protocol)) {
@@ -48,6 +55,21 @@ export function loadConfig(env: NodeJS.ProcessEnv): { config: Config; warnings: 
     warnings.push(`Using FIRESIDE_API_BASE_URL ${config.apiBaseUrl} instead of the Fireside API.`);
   }
   return { config, warnings };
+}
+
+/** A list in the platform's PATH format. Host configuration files are not run through a shell, so `~` is expanded here. */
+function parseDirs(value: string | undefined): string[] {
+  const dirs: string[] = [];
+  for (const raw of (value ?? '').split(delimiter)) {
+    const entry = raw.trim();
+    if (entry === '') continue;
+    const expanded = entry === '~' || entry.startsWith('~/') ? homedir() + entry.slice(1) : entry;
+    if (!isAbsolute(expanded)) {
+      throw new ConfigError(`FIRESIDE_UPLOAD_DIRS must list absolute directories, not "${entry}".`);
+    }
+    dirs.push(resolve(expanded));
+  }
+  return dirs;
 }
 
 function parseBoolean(value: string | undefined, name: string): boolean {
