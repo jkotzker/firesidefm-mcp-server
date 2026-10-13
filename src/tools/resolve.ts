@@ -8,7 +8,7 @@ const MAX_EPISODE_PAGES = 50; // 5,000 episodes
 
 /**
  * Turns the podcast and episode references a user is likely to give (a slug, or an episode
- * number, which Fireside uses as the slug) into the tokens the API requires.
+ * number, which is an episode's default slug) into the tokens the API requires.
  */
 export class Resolver {
   readonly #client: FiresideClient;
@@ -40,7 +40,8 @@ export class Resolver {
     if (cached) return cached;
 
     const slugs: string[] = [];
-    for (let page: number | null = 1, read = 0; page !== null && read < MAX_PODCAST_PAGES; read++) {
+    let page: number | null = 1;
+    for (let read = 0; page !== null && read < MAX_PODCAST_PAGES; read++) {
       const res = await this.#client.listPodcasts({ page, per_page: 50 }, signal);
       for (const podcast of res.data) {
         this.#podcastTokens.set(podcast.slug.toLowerCase(), podcast.token);
@@ -50,6 +51,11 @@ export class Resolver {
     }
     const found = this.#podcastTokens.get(key);
     if (found) return found;
+    if (page !== null) {
+      throw new ToolInputError(
+        `No podcast with slug "${value}" among the first ${slugs.length} podcasts searched. Pass the podcast's token instead.`,
+      );
+    }
     throw new ToolInputError(
       `No podcast with slug "${value}" is visible to this API key. Available: ${slugs.join(', ') || 'none'}.`,
     );
@@ -60,11 +66,19 @@ export class Resolver {
     if (UUID.test(value)) return value;
 
     const key = value.toLowerCase();
-    for (let page: number | null = 1, read = 0; page !== null && read < MAX_EPISODE_PAGES; read++) {
+    let page: number | null = 1;
+    let searched = 0;
+    for (let read = 0; page !== null && read < MAX_EPISODE_PAGES; read++) {
       const res = await this.#client.listEpisodes(podcastToken, { page, per_page: 100 }, signal);
       const match = res.data.find((episode) => episode.slug.toLowerCase() === key);
       if (match) return match.token;
+      searched += res.data.length;
       page = res.pagination.next;
+    }
+    if (page !== null) {
+      throw new ToolInputError(
+        `No episode with slug "${value}" among the ${searched} most recent episodes searched. Pass the episode's token instead.`,
+      );
     }
     throw new ToolInputError(
       `No episode with slug "${value}" in this podcast. Pass an episode token or slug from fireside_list_episodes.`,

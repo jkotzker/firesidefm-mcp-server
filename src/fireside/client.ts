@@ -167,23 +167,21 @@ export class FiresideClient {
       let body: unknown;
       try {
         response = await this.#fetch(url, init);
+      } catch (cause) {
+        throw this.#transportError(cause, { method, path }, timeout, options.signal);
+      }
+      try {
         body = await readJson(response);
       } catch (cause) {
-        if (options.signal?.aborted) throw cause;
-        if (timeout.aborted) {
-          throw new FiresideApiError(`Fireside did not respond within ${this.#timeoutMs / 1000} seconds.`, {
-            method,
-            path,
-          });
-        }
-        throw new FiresideApiError(`Could not reach Fireside: ${describe(cause)}`, { method, path });
+        // Fireside answered, so a write may already have been applied: keep the status.
+        throw this.#transportError(cause, { method, path, status: response.status }, timeout, options.signal);
       }
 
       if (response.ok) {
         const parsed = schema.safeParse(body);
         if (!parsed.success) {
           throw new FiresideResponseShapeError(
-            path,
+            { method, path, status: response.status },
             parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`),
           );
         }
@@ -199,6 +197,26 @@ export class FiresideClient {
       }
       throw error;
     }
+  }
+
+  /** A request that failed without a complete response: timed out, unreachable, or cut off. */
+  #transportError(
+    cause: unknown,
+    details: { method: string; path: string; status?: number },
+    timeout: AbortSignal,
+    callerSignal: AbortSignal | undefined,
+  ): unknown {
+    if (callerSignal?.aborted) return cause;
+    if (timeout.aborted) {
+      return new FiresideApiError(`Fireside did not respond within ${this.#timeoutMs / 1000} seconds.`, details);
+    }
+    // Error text from fetch can quote request headers; never let the key through.
+    const reason = describe(cause).replaceAll(this.#token, '[FIRESIDE_API_TOKEN]');
+    const message =
+      details.status === undefined
+        ? `Could not reach Fireside: ${reason}`
+        : `Fireside's response was cut off: ${reason}`;
+    return new FiresideApiError(message, details);
   }
 }
 
@@ -222,9 +240,10 @@ async function readJson(response: Response): Promise<unknown> {
 
 function toApiError(response: Response, body: unknown, method: string, path: string): FiresideApiError {
   const parsed = errorBodySchema.safeParse(body);
-  const retryAfter = Number.parseInt(response.headers.get('retry-after') ?? '', 10);
+  // Fireside documents Retry-After in whole seconds; anything else is ignored.
+  const retryAfter = response.headers.get('retry-after')?.trim();
   const details: FiresideApiError['details'] = { status: response.status, method, path };
-  if (Number.isFinite(retryAfter)) details.retryAfterSeconds = retryAfter;
+  if (retryAfter && /^\d+$/.test(retryAfter)) details.retryAfterSeconds = Number(retryAfter);
   if (parsed.success) {
     const { message, code, fields } = parsed.data.error;
     if (code !== undefined) details.code = code;
@@ -232,14 +251,15 @@ function toApiError(response: Response, body: unknown, method: string, path: str
     return new FiresideApiError(message, details);
   }
   const snippet = (typeof body === 'string' ? body : body === undefined ? '' : JSON.stringify(body)).slice(0, 300);
-  return new FiresideApiError(
-    `Fireside returned HTTP ${response.status}${snippet ? `: ${snippet}` : ''}`,
-    details,
-  );
+  // The status is reported alongside the message, so the message carries only the body.
+  return new FiresideApiError(snippet || 'Fireside returned no error details.', details);
 }
 
+/** The error message plus its cause: Node's fetch reports only "fetch failed" and keeps the reason in `cause`. */
 function describe(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
+  if (!(cause instanceof Error)) return String(cause);
+  const inner = cause.cause instanceof Error ? ((cause.cause as NodeJS.ErrnoException).code ?? cause.cause.message) : undefined;
+  return inner && !cause.message.includes(inner) ? `${cause.message} (${inner})` : cause.message;
 }
 
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {

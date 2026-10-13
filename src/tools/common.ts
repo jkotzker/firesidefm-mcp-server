@@ -29,6 +29,7 @@ export function podcastArg(resolver: Resolver) {
     : 'Required unless FIRESIDE_PODCAST is configured.';
   return z
     .string()
+    .trim()
     .min(1)
     .optional()
     .describe(`Podcast token (UUID) or slug, as shown by fireside_list_podcasts. ${fallback}`);
@@ -36,6 +37,7 @@ export function podcastArg(resolver: Resolver) {
 
 export const episodeArg = z
   .string()
+  .trim()
   .min(1)
   .describe('Episode token (UUID) or slug, as shown by fireside_list_episodes. Slugs default to the episode number but can be customised (e.g. s02e04); check fireside_list_episodes when unsure.');
 
@@ -47,7 +49,14 @@ export function pageArgs(maxPerPage: number, defaultPerPage: number) {
       .int()
       .min(1)
       .max(maxPerPage)
-      .optional()
+      .default(defaultPerPage)
       .describe(`Results per page, 1–${maxPerPage}. Defaults to ${defaultPerPage}.`),
   };
+}
+
+/** Copies the listed keys that have a value: picks a tool's arguments for a request query or body. */
+export function pick<T extends object, K extends keyof T>(obj: T, ...keys: K[]): Partial<Pick<T, K>> {
+  const out: Partial<Pick<T, K>> = {};
+  for (const key of keys) if (obj[key] !== undefined) out[key] = obj[key];
+  return out;
 }

@@ -21,7 +21,7 @@ A **Read Only** key enables the read tools; a **Read/Write** key also enables th
 | `FIRESIDE_PODCAST` | no | Token or slug of the podcast to use when a request doesn't name one. |
 | `FIRESIDE_READ_ONLY` | no | `true` to offer only the read tools, even with a Read/Write key. |
 
-At startup the server checks the key with Fireside. The write tools are offered only when the key is Read/Write and `FIRESIDE_READ_ONLY` is not set. A rejected key stops the server with an explanation on stderr.
+At startup the server checks the key with Fireside. The write tools are offered only when the key is Read/Write and `FIRESIDE_READ_ONLY` is not set. A rejected key stops the server with an explanation on stderr. If the key cannot be checked for any other reason, such as a network error or a Fireside outage, the server starts with only the read tools and says why on stderr; restart it to try again.
 
 Both hosts below store the key in plain text in their configuration file.
 

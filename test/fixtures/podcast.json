@@ -24,7 +24,7 @@
     "donation_url": null,
     "owner": {
       "name": "Jane Doe",
-      "email": "[email protected]"
+      "email": "jane@example.com"
     }
   }
 }

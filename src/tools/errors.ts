@@ -12,12 +12,15 @@ export function errorResult(error: unknown): CallToolResult {
 }
 
 export function describeError(error: unknown): string {
-  if (error instanceof ToolInputError || error instanceof FiresideResponseShapeError) return error.message;
+  if (error instanceof ToolInputError) return error.message;
+  if (error instanceof FiresideResponseShapeError) {
+    return error.request.method === 'GET' ? error.message : `${error.message}\n${APPLIED_HINT}`;
+  }
   if (!(error instanceof FiresideApiError)) {
     return `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
   }
 
-  const { status, code, fields, retryAfterSeconds } = error.details;
+  const { status, code, fields, retryAfterSeconds, method } = error.details;
   const label = [status === undefined ? undefined : `HTTP ${status}`, code].filter(Boolean).join(', ');
   const lines = [`Fireside API error${label ? ` (${label})` : ''}: ${error.message}`];
   if (fields) {
@@ -25,9 +28,21 @@ export function describeError(error: unknown): string {
       lines.push(`- ${field}: ${Array.isArray(messages) ? messages.join('; ') : JSON.stringify(messages)}`);
     }
   }
-  const hint = hintFor(status, code, retryAfterSeconds);
+  const hint = outcomeUnknown(method, status) ? MAYBE_APPLIED_HINT : hintFor(status, code, retryAfterSeconds);
   if (hint) lines.push(hint);
   return lines.join('\n');
+}
+
+const APPLIED_HINT =
+  'The change was saved. Do not repeat the call; check the episode with fireside_get_episode or fireside_list_episodes.';
+const MAYBE_APPLIED_HINT =
+  'Fireside may have received and applied this change. Check the episode with fireside_get_episode or ' +
+  'fireside_list_episodes before trying again: episodes cannot be deleted through the API, so repeating a create ' +
+  'leaves a duplicate draft.';
+
+/** A change that failed with no response, or whose successful response was cut off, may still have been applied. */
+function outcomeUnknown(method: string, status: number | undefined): boolean {
+  return method !== 'GET' && (status === undefined || (status >= 200 && status < 300));
 }
 
 function hintFor(status: number | undefined, code: string | undefined, retryAfter: number | undefined): string | undefined {

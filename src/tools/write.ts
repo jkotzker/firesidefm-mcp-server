@@ -2,12 +2,9 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
 import type { EpisodeFields } from '../fireside/client.js';
-import { episodeArg, guarded, ok, podcastArg, type ToolDeps } from './common.js';
+import { episodeArg, guarded, ok, pick, podcastArg, type ToolDeps } from './common.js';
 import { ToolInputError } from './errors.js';
-import { pick } from './read.js';
 import { writtenEpisode, writtenEpisodeSchema } from './shape.js';
-
-const FIELD_KEYS = ['title', 'subtitle', 'slug', 'description', 'season', 'episode_type', 'explicit'] as const;
 
 const episodeFields = {
   title: z.string().min(1).optional().describe('Episode title.'),
@@ -22,6 +19,7 @@ const episodeFields = {
   episode_type: z.enum(['full', 'trailer', 'bonus']).optional().describe('full, trailer, or bonus.'),
   explicit: z.boolean().optional().describe('Whether the episode has explicit content.'),
 };
+const FIELD_KEYS = Object.keys(episodeFields) as (keyof typeof episodeFields)[];
 
 const output = { outputSchema: writtenEpisodeSchema } as const;
 
@@ -34,7 +32,7 @@ export function registerWriteTools(server: McpServer, { client, resolver }: Tool
         "Create a private draft episode, starting from the podcast's episode defaults. Nothing is published. " +
         'Audio cannot be uploaded through the API: the user adds it in the Fireside dashboard before publishing. ' +
         'Without a slug, the next episode number is used.',
-      inputSchema: z.object({ podcast: podcastArg(resolver), ...episodeFields }),
+      inputSchema: z.strictObject({ podcast: podcastArg(resolver), ...episodeFields }),
       ...output,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -54,7 +52,7 @@ export function registerWriteTools(server: McpServer, { client, resolver }: Tool
         "Change an episode's title, subtitle, slug, show notes, season, type or explicit flag, leaving other fields alone. " +
         'Changes to a published episode go live immediately, and a new slug changes its public URL. ' +
         'Release date and visibility change only through fireside_publish_episode and fireside_unpublish_episode.',
-      inputSchema: z.object({ podcast: podcastArg(resolver), episode: episodeArg, ...episodeFields }),
+      inputSchema: z.strictObject({ podcast: podcastArg(resolver), episode: episodeArg, ...episodeFields }),
       ...output,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
@@ -79,7 +77,7 @@ export function registerWriteTools(server: McpServer, { client, resolver }: Tool
         "Release an episode to the podcast's feed and website: now, at a future time (scheduled), or backdated. " +
         'The episode must already have audio. If the episode is set in the dashboard to post to connected social ' +
         'accounts, publishing posts there too. Confirm the episode, time and visibility with the user before calling.',
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         podcast: podcastArg(resolver),
         episode: episodeArg,
         published_at: z
@@ -120,7 +118,7 @@ export function registerWriteTools(server: McpServer, { client, resolver }: Tool
       description:
         'Turn an episode back into a private draft, removing it from the feed and website. Its release date is kept, ' +
         'so publishing again with that date puts it back in place.',
-      inputSchema: z.object({ podcast: podcastArg(resolver), episode: episodeArg }),
+      inputSchema: z.strictObject({ podcast: podcastArg(resolver), episode: episodeArg }),
       ...output,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
@@ -134,6 +132,7 @@ export function registerWriteTools(server: McpServer, { client, resolver }: Tool
   );
 }
 
-function fields(args: Partial<Record<(typeof FIELD_KEYS)[number], unknown>>): EpisodeFields {
-  return pick(args, ...FIELD_KEYS) as EpisodeFields;
+/** The episode fields among a tool's arguments; typed so the Zod shape must stay assignable to EpisodeFields. */
+function fields(args: z.infer<z.ZodObject<typeof episodeFields>>): EpisodeFields {
+  return pick(args, ...FIELD_KEYS);
 }

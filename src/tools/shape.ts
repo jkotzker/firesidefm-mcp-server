@@ -102,7 +102,3 @@ export const episodeMetricsSummarySchema = z.object({
 export function episodeMetricsSummary(m: EpisodeMetrics): z.infer<typeof episodeMetricsSummarySchema> {
   return { token: m.token, title: m.title, slug: m.slug, published_at: m.published_at, downloads: m.downloads };
 }
-
-export const fullPodcastSchema = podcastSchema;
-export const fullEpisodeSchema = episodeSchema;
-export const pageSchema = paginationSchema;

@@ -7,6 +7,7 @@
 // counts and slugs, never response values such as preview URLs or download figures.
 
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import { Client, type CallToolResult } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
@@ -117,7 +118,7 @@ async function overMcp(token: string, podcastSlug: string, episodeSlug: string |
   console.log('\n# MCP server (dist/cli.js) over stdio');
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [new URL('../dist/cli.js', import.meta.url).pathname],
+    args: [fileURLToPath(new URL('../dist/cli.js', import.meta.url))],
     env: { PATH: process.env.PATH ?? '', FIRESIDE_API_TOKEN: token, FIRESIDE_READ_ONLY: 'true' },
     stderr: 'pipe',
   });

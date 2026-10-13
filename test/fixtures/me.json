@@ -1,7 +1,7 @@
 {
   "data": {
     "name": "Jane Doe",
-    "email": "[email protected]",
+    "email": "jane@example.com",
     "created_at": "2024-01-15T12:00:00Z",
     "api_token": {
       "name": "My CLI",

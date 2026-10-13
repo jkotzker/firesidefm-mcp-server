@@ -12,7 +12,7 @@ const log = (message: string) => process.stderr.write(`${SERVER_NAME}: ${message
 try {
   const { deps, notices } = await startup(process.env);
   for (const notice of notices) log(notice);
-  serveStdio(() => createServer(deps));
+  serveStdio(() => createServer(deps), { onerror: (error) => log(`MCP transport error: ${error.message}`) });
 } catch (error) {
   log(error instanceof ConfigError ? error.message : `failed to start: ${String(error)}`);
   process.exitCode = 1;

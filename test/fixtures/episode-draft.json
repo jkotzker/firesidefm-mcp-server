@@ -1,0 +1,42 @@
+{
+  "data": {
+    "token": "6a20c700-51d3-4c0a-abe7-da88d972a27c",
+    "title": "Untitled draft",
+    "subtitle": null,
+    "slug": "43",
+    "season": null,
+    "episode_type": "full",
+    "status": "draft",
+    "visibility": "private",
+    "members_only": false,
+    "explicit": false,
+    "duration": null,
+    "published_at": null,
+    "created_at": "2026-09-01T12:00:00Z",
+    "updated_at": "2026-09-10T23:14:54Z",
+    "url": null,
+    "preview_url": "https://my-podcast.fireside.fm/preview/x7Kq2mPa",
+    "audio_url": null,
+    "audio_size": null,
+    "guid": "6a20c700-51d3-4c0a-abe7-da88d972a27c",
+    "artwork_url": "https://media24.fireside.fm/file/fireside-images-2024/podcasts/images/5/550e8400-e29b-41d4-a716-446655440000/cover.jpg?v=3",
+    "transcript_url": null,
+    "chapters_url": null,
+    "player_url": "https://fireside.fm/player/v2/AbCd1234+EfGh5678",
+    "player_embed_code": "<iframe src=\"https://fireside.fm/player/v2/AbCd1234+EfGh5678\" width=\"740\" height=\"200\" frameborder=\"0\" scrolling=\"no\"></iframe>",
+    "soundbite": null,
+    "hosts": [
+      {
+        "name": "Jane Doe",
+        "url": "https://janedoe.example.com"
+      }
+    ],
+    "guests": [
+      {
+        "name": "Sam Lee",
+        "url": null
+      }
+    ],
+    "description": null
+  }
+}

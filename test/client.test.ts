@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { FiresideClient } from '../src/fireside/client.js';
 import { FiresideApiError, FiresideResponseShapeError } from '../src/fireside/errors.js';
+import { describeError } from '../src/tools/errors.js';
 import { fakeFetch, fixture, type Route } from './helpers/fake-fetch.js';
 
 const TOKEN = `fire_${'a'.repeat(64)}`;
@@ -145,7 +146,8 @@ describe('FiresideClient errors', () => {
     const { c } = client([{ method: 'GET', path: 'me', status: 502, body: '<html>Bad Gateway</html>' }]);
     const error = (await c.getMe().catch((e: unknown) => e)) as FiresideApiError;
     expect(error.details.status).toBe(502);
-    expect(error.message).toContain('HTTP 502');
+    expect(error.message).toBe('<html>Bad Gateway</html>');
+    expect(describeError(error).match(/HTTP 502/g)).toHaveLength(1);
   });
 
   it('keeps the body of a JSON error in an undocumented shape', async () => {
@@ -215,6 +217,23 @@ describe('FiresideClient rate limiting', () => {
     expect(sleeps).toEqual([3000, 3000]);
   });
 
+  it.each(['-5', '1.9', '5abc', 'Wed, 21 Oct 2026 07:28:00 GMT'])('ignores a Retry-After of %s', async (value) => {
+    const { c, sleeps } = client([{ ...limited, headers: { 'Retry-After': value } }]);
+    const error = (await c.getMe().catch((e: unknown) => e)) as FiresideApiError;
+    expect(error.details.retryAfterSeconds).toBeUndefined();
+    expect(sleeps).toEqual([]);
+  });
+
+  it('never retries an error other than 429, even with Retry-After', async () => {
+    const { c, sleeps, requests } = client([
+      { method: 'POST', path: `podcasts/${POD}/episodes/${EP}/publish`, status: 503, body: 'down', headers: { 'Retry-After': '1' } },
+    ]);
+    const error = (await c.publishEpisode(POD, EP).catch((e: unknown) => e)) as FiresideApiError;
+    expect(error.details.status).toBe(503);
+    expect(requests).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+  });
+
   it('does not wait out an unreasonably long Retry-After', async () => {
     const { c, sleeps } = client([{ ...limited, headers: { 'Retry-After': '600' } }]);
     await expect(c.getMe()).rejects.toBeInstanceOf(FiresideApiError);
@@ -228,5 +247,84 @@ describe('FiresideClient rate limiting', () => {
     const pending = c.getMe(controller.signal);
     setTimeout(() => controller.abort(new Error('cancelled')), 10);
     await expect(pending).rejects.toThrow('cancelled');
+  });
+});
+
+describe('FiresideClient failures that leave a write in an unknown state', () => {
+  const create = (fetch: typeof globalThis.fetch, extra: object = {}) =>
+    new FiresideClient({ token: TOKEN, fetch, ...extra }).createEpisode(POD, { title: 'x' }).catch((e: unknown) => e);
+
+  it('warns that a timed-out write may have been applied, and does not suggest retrying', async () => {
+    const error = await create(
+      (_url, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))),
+      { requestTimeoutMs: 20 },
+    );
+    expect(describeError(error)).toContain('may have received and applied this change');
+    expect(describeError(error)).not.toContain('did not reach Fireside');
+  });
+
+  it('keeps the status when a response is cut off', async () => {
+    const cutOff = new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.error(new TypeError('terminated'));
+        },
+      }),
+      { status: 201 },
+    );
+    const error = (await create(async () => cutOff)) as FiresideApiError;
+    expect(error.details.status).toBe(201);
+    expect(describeError(error)).toContain('may have received and applied this change');
+  });
+
+  it('says a write was accepted when only the response shape is unexpected', async () => {
+    const error = await create(async () => new Response(JSON.stringify({ data: { token: EP } }), { status: 201 }));
+    expect(error).toBeInstanceOf(FiresideResponseShapeError);
+    expect(describeError(error)).toContain('Fireside accepted the change (HTTP 201)');
+    expect(describeError(error)).toContain('Do not repeat the call');
+  });
+
+  it('still suggests retrying a failed read', async () => {
+    const error = await new FiresideClient({
+      token: TOKEN,
+      fetch: async () => {
+        throw new TypeError('fetch failed');
+      },
+    })
+      .getMe()
+      .catch((e: unknown) => e);
+    expect(describeError(error)).toContain('did not reach Fireside');
+  });
+});
+
+describe('FiresideClient error text', () => {
+  it('never includes the API key', async () => {
+    const c = new FiresideClient({
+      token: TOKEN,
+      fetch: async () => {
+        throw new TypeError(`Headers.append: "Bearer ${TOKEN}" is an invalid header value.`);
+      },
+    });
+    const error = (await c.getMe().catch((e: unknown) => e)) as FiresideApiError;
+    expect(error.message).not.toContain(TOKEN);
+    expect(error.message).toContain('[FIRESIDE_API_TOKEN]');
+  });
+
+  it('includes the reason Node keeps in the cause of "fetch failed"', async () => {
+    const c = new FiresideClient({
+      token: TOKEN,
+      fetch: async () => {
+        throw new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo ENOTFOUND fireside.fm'), { code: 'ENOTFOUND' }) });
+      },
+    });
+    const error = (await c.getMe().catch((e: unknown) => e)) as FiresideApiError;
+    expect(error.message).toBe('Could not reach Fireside: fetch failed (ENOTFOUND)');
+  });
+
+  it('accepts an episode without artwork', async () => {
+    const body = fixture('episode') as { data: Record<string, unknown> };
+    body.data.artwork_url = null;
+    const { c } = client([{ method: 'GET', path: `podcasts/${POD}/episodes/${EP}`, body }]);
+    expect((await c.getEpisode(POD, EP)).data.artwork_url).toBeNull();
   });
 });

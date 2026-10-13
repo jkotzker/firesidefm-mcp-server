@@ -1,17 +1,20 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { fileURLToPath } from 'node:url';
 
 import { Client, type CallToolResult } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { fixture } from '../test/helpers/fake-fetch.js';
 import { EP, POD, TOKEN } from '../test/helpers/deps.js';
 
 // Runs the built dist/cli.js as an MCP host would, over stdio, against a local stand-in for the
 // Fireside API. Nothing leaves the machine. Run with `npm run test:e2e`, which builds first.
+
+const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 
 const routes: Record<string, unknown> = {
   'GET /api/v1/me': (() => {
@@ -53,13 +56,15 @@ afterAll(() => {
 async function connect(env: Record<string, string>) {
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [new URL('../dist/cli.js', import.meta.url).pathname],
+    args: [CLI],
     env: { PATH: process.env.PATH ?? '', FIRESIDE_API_BASE_URL: baseUrl, ...env },
     stderr: 'pipe',
   });
+  const stderr: string[] = [];
+  transport.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk.toString()));
   const client = new Client({ name: 'e2e', version: '0.0.0' }, { versionNegotiation: { mode: 'auto' } });
   await client.connect(transport);
-  return client;
+  return Object.assign(client, { stderr: () => stderr.join('') });
 }
 
 describe('built server over stdio', () => {
@@ -74,6 +79,7 @@ describe('built server over stdio', () => {
       expect(result.isError).toBeFalsy();
       expect(result.structuredContent).toMatchObject({ token: EP, title: 'Alternating Currents' });
       expect(seen.every((r) => r.auth === `Bearer ${TOKEN}`)).toBe(true);
+      expect(client.stderr()).not.toContain('MCP transport error');
     } finally {
       await client.close();
     }
@@ -88,8 +94,35 @@ describe('built server over stdio', () => {
     }
   });
 
+  it('writes only JSON-RPC messages to stdout', async () => {
+    const child = spawn(process.execPath, [CLI], {
+      env: { PATH: process.env.PATH ?? '', FIRESIDE_API_BASE_URL: baseUrl, FIRESIDE_API_TOKEN: TOKEN },
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    const send = (message: object) => child.stdin.write(`${JSON.stringify(message)}\n`);
+    send({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'e2e', version: '0.0.0' } },
+    });
+    send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    send({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
+    await vi.waitFor(() => expect(stdout).toContain('"id":2'), { timeout: 10_000 });
+    child.stdin.end();
+    await once(child, 'exit');
+
+    const lines = stdout.split('\n').filter((line) => line.trim() !== '');
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    for (const line of lines) expect(JSON.parse(line)).toMatchObject({ jsonrpc: '2.0' });
+    expect(stderr).toContain('Connected to Fireside');
+  });
+
   it('exits with an explanation when no token is configured', async () => {
-    const child = spawnSync(process.execPath, [new URL('../dist/cli.js', import.meta.url).pathname], {
+    const child = spawnSync(process.execPath, [CLI], {
       env: { PATH: process.env.PATH ?? '' },
       input: '',
       encoding: 'utf8',

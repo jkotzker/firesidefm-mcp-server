@@ -60,6 +60,13 @@ describe('draftGuard', () => {
     expect(sent).toHaveLength(1);
   });
 
+  it('refuses a POST to any path other than creating an episode', () => {
+    const { guard, sent } = setup();
+    guard.allow(DRAFT);
+    expect(() => guard.fetch(`${API}podcasts/${POD}/episodes/${DRAFT}/anything`, { method: 'POST' })).toThrow(/only POST allowed/);
+    expect(sent).toEqual([]);
+  });
+
   it.each(['DELETE', 'PUT'])('refuses %s', (method) => {
     const { guard } = setup();
     guard.allow(DRAFT);

@@ -36,7 +36,8 @@
     "test:e2e": "npm run build && vitest run --config vitest.e2e.config.ts",
     "dev": "tsx src/cli.ts",
     "check": "npm run typecheck && npm test && npm run test:e2e",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run check"
   },
   "allowScripts": {
     "esbuild": true

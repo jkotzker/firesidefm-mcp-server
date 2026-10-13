@@ -22,14 +22,15 @@ const KEYCHAIN_SERVICE = 'firesidefm-mcp-server';
 const KEYCHAIN_ACCOUNT = 'read-write';
 const SLUG_PREFIX = 'mcp-server-test-draft';
 
-// FIRESIDE_API_TOKEN and FIRESIDE_API_BASE_URL override the Keychain and the real API, for a
-// rehearsal against a local stand-in.
-const token =
-  process.env.FIRESIDE_API_TOKEN ??
-  execFileSync('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', KEYCHAIN_ACCOUNT, '-w'], {
-  encoding: 'utf8',
-}).trim();
+// For a rehearsal against a local stand-in, set FIRESIDE_API_BASE_URL; FIRESIDE_API_TOKEN is then
+// used instead of the Keychain. Without a stand-in, the key always comes from the Keychain.
 const baseUrl = process.env.FIRESIDE_API_BASE_URL;
+const token =
+  baseUrl && process.env.FIRESIDE_API_TOKEN
+    ? process.env.FIRESIDE_API_TOKEN
+    : execFileSync('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', KEYCHAIN_ACCOUNT, '-w'], {
+        encoding: 'utf8',
+      }).trim();
 
 const guard = draftGuard();
 
@@ -45,12 +46,13 @@ function textOf(result: CallToolResult): string {
 
 type Episode = Record<string, unknown> & { token: string; slug: string; title: string };
 
+console.log(`Target: ${baseUrl ?? 'the real Fireside API'}`);
 console.log(`Key: ${token.length} characters, ${/^fire_[0-9a-f]{64}$/.test(token) ? 'expected format' : 'UNEXPECTED format'}`);
 const { deps, notices } = await startup(
   { FIRESIDE_API_TOKEN: token, ...(baseUrl ? { FIRESIDE_API_BASE_URL: baseUrl } : {}) },
   { fetch: guard.fetch },
 );
-if (!deps.writeTools) {
+if (deps.access !== 'read_write') {
   console.log(notices.join('\n'));
   throw new Error('Write tools are not enabled (see above), so there is nothing to check. Stopping.');
 }

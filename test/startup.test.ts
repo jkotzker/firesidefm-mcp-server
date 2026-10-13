@@ -34,6 +34,32 @@ describe('loadConfig', () => {
     expect(warnings).toEqual([]);
   });
 
+  it.each([
+    ['a line break', `${TOKEN.slice(0, 30)}\n${TOKEN.slice(30)}`],
+    ['a space', `${TOKEN.slice(0, 30)} ${TOKEN.slice(30)}`],
+    ['a non-ASCII character', `${TOKEN}\u200b`],
+  ])('rejects a token containing %s without echoing it', (_label, token) => {
+    const error = (() => {
+      try {
+        loadConfig({ FIRESIDE_API_TOKEN: token });
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(error).toBeInstanceOf(ConfigError);
+    expect((error as Error).message).not.toContain(TOKEN.slice(0, 20));
+  });
+
+  it('normalises FIRESIDE_API_BASE_URL and warns that it is in use', () => {
+    const { config, warnings } = loadConfig({ FIRESIDE_API_TOKEN: TOKEN, FIRESIDE_API_BASE_URL: 'http://127.0.0.1:9/api/v1' });
+    expect(config.apiBaseUrl).toBe('http://127.0.0.1:9/api/v1/');
+    expect(warnings.join('\n')).toContain('http://127.0.0.1:9/api/v1/');
+  });
+
+  it.each(['localhost:9/api', 'ftp://example.com/api/', 'not a url'])('rejects FIRESIDE_API_BASE_URL %s', (url) => {
+    expect(() => loadConfig({ FIRESIDE_API_TOKEN: TOKEN, FIRESIDE_API_BASE_URL: url })).toThrow(ConfigError);
+  });
+
   it('rejects an unrecognised read-only value', () => {
     expect(() => loadConfig({ FIRESIDE_API_TOKEN: TOKEN, FIRESIDE_READ_ONLY: 'yes' })).toThrow(/true or false/);
   });
@@ -42,32 +68,46 @@ describe('loadConfig', () => {
 describe('startup', () => {
   it('offers write tools for a Read/Write key', async () => {
     const { deps, notices } = await start({}, [{ method: 'GET', path: 'me', body: meWith('read_and_write') }]);
-    expect(deps.writeTools).toBe(true);
+    expect(deps.access).toBe('read_write');
     expect(notices.join('\n')).toContain('Read/Write key');
   });
 
   it('withholds write tools for a Read Only key', async () => {
     const { deps } = await start({}, [{ method: 'GET', path: 'me', body: meWith('read_only') }]);
-    expect(deps.writeTools).toBe(false);
+    expect(deps.access).toBe('read_only_key');
   });
 
   it('withholds write tools when FIRESIDE_READ_ONLY is set', async () => {
     const { deps, notices } = await start({ FIRESIDE_READ_ONLY: 'true' }, [
       { method: 'GET', path: 'me', body: meWith('read_and_write') },
     ]);
-    expect(deps.writeTools).toBe(false);
+    expect(deps.access).toBe('read_only_setting');
     expect(notices.join('\n')).toContain('disabled by FIRESIDE_READ_ONLY');
   });
 
   it('fails on a rejected key', async () => {
     await expect(
       start({}, [{ method: 'GET', path: 'me', status: 401, body: fixture('error-unauthorized') }]),
-    ).rejects.toThrow(/rejected FIRESIDE_API_TOKEN/);
+    ).rejects.toSatisfy((e) => e instanceof ConfigError && /rejected FIRESIDE_API_TOKEN/.test(e.message));
   });
 
   it('starts read-only when the key cannot be checked', async () => {
     const { deps, notices } = await start({}, [{ method: 'GET', path: 'me', status: 503, body: 'down' }]);
-    expect(deps.writeTools).toBe(false);
-    expect(notices.join('\n')).toContain('only read tools are offered');
+    expect(deps.access).toBe('unverified');
+    expect(notices.join('\n')).toContain('only read tools are offered; restart the server to try again');
+  });
+
+  it('does not hold up startup waiting out a rate limit', async () => {
+    const sleeps: number[] = [];
+    const fake = fakeFetch([
+      { method: 'GET', path: 'me', status: 429, body: fixture('error-rate-limited'), headers: { 'Retry-After': '5' } },
+    ]);
+    const { deps } = await startup(
+      { FIRESIDE_API_TOKEN: TOKEN },
+      { fetch: fake.fetch, sleep: async (ms) => void sleeps.push(ms) },
+    );
+    expect(deps.access).toBe('unverified');
+    expect(sleeps).toEqual([]);
+    expect(fake.requests).toHaveLength(1);
   });
 });

@@ -21,17 +21,20 @@ export class FiresideApiError extends Error {
   }
 }
 
-/** Fireside answered, but not in the documented shape. */
+/** Fireside answered successfully, but not in the documented shape. */
 export class FiresideResponseShapeError extends Error {
   override readonly name = 'FiresideResponseShapeError';
 
   constructor(
-    readonly path: string,
+    readonly request: { method: string; path: string; status: number },
     readonly issues: string[],
   ) {
+    const { method, path, status } = request;
     super(
-      `Fireside returned a response for ${path} that does not match the documented shape: ${issues.join('; ')}. ` +
-        'The API may have changed; please report this.',
+      (method === 'GET'
+        ? `Fireside returned a response for ${path} that does not match the documented shape: `
+        : `Fireside accepted the change (HTTP ${status}), but its response does not match the documented shape: `) +
+        `${issues.join('; ')}. The API may have changed; please report this.`,
     );
   }
 }

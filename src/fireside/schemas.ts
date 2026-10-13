@@ -13,7 +13,6 @@ export const paginationSchema = z.looseObject({
   previous: z.number().int().nullable(),
   next: z.number().int().nullable(),
 });
-export type Pagination = z.infer<typeof paginationSchema>;
 
 export const meSchema = z.looseObject({
   name: z.string(),
@@ -25,7 +24,6 @@ export const meSchema = z.looseObject({
     created_at: z.string(),
   }),
 });
-export type Me = z.infer<typeof meSchema>;
 
 export const podcastSchema = z.looseObject({
   token: z.string(),
@@ -71,7 +69,8 @@ export const episodeSchema = z.looseObject({
   audio_url: nullableString,
   audio_size: z.number().int().nullable(),
   guid: z.string(),
-  artwork_url: z.string(),
+  // Documented as the podcast's artwork when the episode has none, and podcast artwork can be null.
+  artwork_url: nullableString,
   transcript_url: nullableString,
   chapters_url: nullableString,
   player_url: z.string(),
@@ -81,7 +80,7 @@ export const episodeSchema = z.looseObject({
     .nullable(),
   hosts: z.array(person),
   guests: z.array(person),
-  // Only on Get Episode (and the write endpoints, which return the same shape).
+  // Documented on Get Episode and Create Episode; list results and other write responses may omit it.
   description: nullableString.optional(),
 });
 export type Episode = z.infer<typeof episodeSchema>;
@@ -112,7 +111,6 @@ export const monthlyDownloadsSchema = z.looseObject({
   date: z.string(),
   value: z.number().int(),
 });
-export type MonthlyDownloads = z.infer<typeof monthlyDownloadsSchema>;
 
 export const errorBodySchema = z.object({
   error: z.looseObject({
