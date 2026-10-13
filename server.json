@@ -1,0 +1,45 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.jkotzker/firesidefm-mcp-server",
+  "title": "Fireside.fm",
+  "description": "Unofficial server for the Fireside.fm podcast API: podcasts, episodes, downloads and drafts.",
+  "repository": {
+    "url": "https://github.com/jkotzker/firesidefm-mcp-server",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "firesidefm-mcp-server",
+      "version": "0.1.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "FIRESIDE_API_TOKEN",
+          "description": "Fireside API key, created at https://app.fireside.fm/api_tokens. A Read Only key offers only the read tools.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "FIRESIDE_PODCAST",
+          "description": "Token or slug of the podcast to use when a request does not name one.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "FIRESIDE_READ_ONLY",
+          "description": "Set to true to offer only the read tools, even with a Read/Write key.",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        }
+      ]
+    }
+  ]
+}

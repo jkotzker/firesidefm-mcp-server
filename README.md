@@ -4,12 +4,14 @@ An [MCP](https://modelcontextprotocol.io) server for the [Fireside.fm](https://f
 
 This is an unofficial project. It is not affiliated with or endorsed by Fireside.
 
-> **Status:** pre-release (0.1.0). Not yet published to npm; run it from a local build for now.
+> **Status:** pre-release (0.1.0), not yet published to npm. Until it is, build it locally (see [Development](#development)) and, in the examples below, replace `npx -y firesidefm-mcp-server` with `node /path/to/firesidefm-mcp-server/dist/cli.js`.
 
 ## Requirements
 
 - Node.js 22 or later
-- A Fireside API key, created at <https://app.fireside.fm/api_tokens>. A **Read Only** key enables the read tools; a **Read/Write** key also enables the tools that change episodes.
+- A Fireside API key, created at <https://app.fireside.fm/api_tokens>
+
+A **Read Only** key enables the read tools; a **Read/Write** key also enables the tools that change episodes. Use a Read Only key unless you want your assistant to create, edit or publish episodes. A key covers every podcast on your Fireside account.
 
 ## Configuration
 
@@ -21,15 +23,46 @@ This is an unofficial project. It is not affiliated with or endorsed by Fireside
 
 At startup the server checks the key with Fireside. The write tools are offered only when the key is Read/Write and `FIRESIDE_READ_ONLY` is not set. A rejected key stops the server with an explanation on stderr.
 
-## Use with Claude Code (local build)
+Both hosts below store the key in plain text in their configuration file.
+
+## Claude Code
 
 ```sh
-npm install && npm run build
 claude mcp add fireside \
   --env FIRESIDE_API_TOKEN=fire_… \
   --env FIRESIDE_PODCAST=your-podcast-slug \
-  -- node /path/to/firesidefm-mcp-server/dist/cli.js
+  -- npx -y firesidefm-mcp-server
 ```
+
+This adds the server for the current project only. Add `--scope user` to make it available in every project.
+
+## Claude Desktop
+
+Edit Claude Desktop's configuration file:
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+Add an entry under `mcpServers` (create the object if the file doesn't have one yet):
+
+```json
+{
+  "mcpServers": {
+    "fireside": {
+      "command": "npx",
+      "args": ["-y", "firesidefm-mcp-server"],
+      "env": {
+        "FIRESIDE_API_TOKEN": "fire_…",
+        "FIRESIDE_PODCAST": "your-podcast-slug"
+      }
+    }
+  }
+}
+```
+
+Then quit and reopen Claude Desktop.
+
+Claude Desktop does not read your shell profile, so if Node was installed with a version manager such as nvm, it may not find `npx`. In that case set `"command"` to the full path printed by `which npx`.
 
 ## Tools
 
@@ -49,6 +82,8 @@ Podcasts and episodes can be named by token or by slug. An episode's slug defaul
 | `fireside_publish_episode` | ✓ | Publish now, schedule, or backdate; public or unlisted. |
 | `fireside_unpublish_episode` | ✓ | Return an episode to a private draft. |
 
+`fireside_get_episode` includes the episode's preview link, which plays the episode for anyone who has it, even before release.
+
 ## Limitations
 
 These come from the Fireside API itself:
@@ -62,11 +97,15 @@ These come from the Fireside API itself:
 
 ```sh
 npm install
+npm run build       # compiles to dist/
 npm run typecheck
 npm test            # unit and in-process MCP tests; no network
 npm run test:e2e    # builds, then runs dist/cli.js over stdio against a local stand-in API
+npm run check       # all of the above
 npm run dev         # run from source with tsx
 ```
+
+`scripts/` holds two checks that run against the real Fireside API with a key read from the macOS Keychain; see the comment at the top of each file. `live-read-check.ts` only reads. `live-draft-check.ts` creates and edits one draft episode, which you then delete in the dashboard; it refuses to send publish or unpublish requests.
 
 ## License
 

@@ -10,6 +10,14 @@
   ],
   "license": "MIT",
   "author": "Joseph Kotzker",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jkotzker/firesidefm-mcp-server.git"
+  },
+  "homepage": "https://github.com/jkotzker/firesidefm-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/jkotzker/firesidefm-mcp-server/issues"
+  },
   "type": "module",
   "mcpName": "io.github.jkotzker/firesidefm-mcp-server",
   "bin": {
@@ -22,12 +30,13 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "npm run build && vitest run --config vitest.e2e.config.ts",
     "dev": "tsx src/cli.ts",
-    "check": "npm run typecheck && npm test && npm run test:e2e"
+    "check": "npm run typecheck && npm test && npm run test:e2e",
+    "prepack": "npm run build"
   },
   "allowScripts": {
     "esbuild": true
