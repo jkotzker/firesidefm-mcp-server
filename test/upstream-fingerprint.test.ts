@@ -41,6 +41,11 @@ const UPLOADS = `<h2 id="uploads">Upload a Widget</h2>
   <table><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
   <tbody><tr><td><code>kind</code></td><td>string</td><td>What it is</td></tr></tbody></table>`;
 
+// One code block listing two endpoints, as the documentation does for Downloads by Day.
+const DAILY = `<h2 id="daily">Widgets by Day</h2>
+<pre><code>GET /api/v1/widgets/daily
+GET /api/v1/widgets/:widget_token/daily</code></pre>`;
+
 describe('docsFingerprint', () => {
   const lines = docsFingerprint(page());
 
@@ -67,6 +72,22 @@ describe('docsFingerprint', () => {
       'code widget-create write_access_required',
       'code widget-create name_taken',
     ]);
+  });
+
+  it('records each endpoint of a block that lists several', () => {
+    expect(docsFingerprint(page({ extra: DAILY }))).toEqual(
+      expect.arrayContaining([
+        'endpoint daily GET /api/v1/widgets/daily',
+        'endpoint daily GET /api/v1/widgets/:widget_token/daily',
+      ]),
+    );
+  });
+
+  it('records no endpoint from a block that mixes endpoints with other text', () => {
+    const mixed = `<h2 id="mixed">Mixed</h2>
+<pre><code>GET /api/v1/widgets
+curl https://example.test</code></pre>`;
+    expect(docsFingerprint(page({ extra: mixed })).filter((l) => l.startsWith('endpoint mixed'))).toEqual([]);
   });
 
   it('keeps no description text or example values', () => {
