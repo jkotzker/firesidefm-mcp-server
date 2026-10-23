@@ -78,7 +78,7 @@ describe('built server over stdio', () => {
     try {
       expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(12);
+      expect(tools).toHaveLength(13);
 
       const result = (await client.callTool({ name: 'fireside_get_episode', arguments: { episode: '42' } })) as CallToolResult;
       expect(result.isError).toBeFalsy();
@@ -93,7 +93,7 @@ describe('built server over stdio', () => {
   it('honours FIRESIDE_READ_ONLY', async () => {
     const client = await connect({ FIRESIDE_API_TOKEN: TOKEN, FIRESIDE_READ_ONLY: 'true' });
     try {
-      expect((await client.listTools()).tools).toHaveLength(7);
+      expect((await client.listTools()).tools).toHaveLength(8);
     } finally {
       await client.close();
     }

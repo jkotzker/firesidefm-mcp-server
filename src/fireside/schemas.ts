@@ -149,3 +149,23 @@ export const monthlyDownloadsEnvelope = z.looseObject({
   meta: z.looseObject({ total_downloads: z.number().int() }),
   pagination: paginationSchema,
 });
+
+export const dailyDownloadsSchema = z.looseObject({
+  day: z.string(),
+  downloads: z.number().int(),
+  spotify: z.number().int(),
+  total: z.number().int(),
+});
+
+export const dailyDownloadsEnvelope = z.looseObject({
+  data: z.array(dailyDownloadsSchema),
+  meta: z.looseObject({
+    start_date: z.string(),
+    end_date: z.string(),
+    time_zone: z.string(),
+    downloads: z.number().int(),
+    spotify: z.number().int(),
+    total: z.number().int(),
+  }),
+});
+export type DailyDownloads = z.infer<typeof dailyDownloadsEnvelope>;

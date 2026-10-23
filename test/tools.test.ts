@@ -1,5 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { connect, type Connected, type Era } from './helpers/mcp.js';
 import { EP, POD, serverWith } from './helpers/deps.js';
@@ -20,6 +20,7 @@ const READ_TOOLS = [
   'fireside_get_episode',
   'fireside_get_episode_metrics',
   'fireside_get_monthly_downloads',
+  'fireside_get_daily_downloads',
 ];
 const WRITE_TOOLS = [
   'fireside_create_episode',
@@ -412,6 +413,168 @@ describe('arguments', () => {
     expect((await call(tool, { podcast: POD, page: 3 })).isError).toBeFalsy();
     expect(requests[0]!.url.searchParams.get('page')).toBe('3');
     expect(requests[0]!.url.searchParams.get('per_page')).toBe(perPage);
+  });
+});
+
+describe('fireside_get_daily_downloads', () => {
+  const DAILY = `podcasts/${POD}/metrics/daily`;
+
+  // A response for every day from start to end, 10 downloads and 1 Spotify play each.
+  function days(start: string, end: string) {
+    const data = [];
+    for (let d = new Date(`${start}T00:00:00Z`); d <= new Date(`${end}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1)) {
+      data.push({ day: d.toISOString().slice(0, 10), downloads: 10, spotify: 1, total: 11 });
+    }
+    const n = data.length;
+    return {
+      data,
+      meta: { start_date: start, end_date: end, time_zone: 'UTC', downloads: 10 * n, spotify: n, total: 11 * n },
+    };
+  }
+
+  const params = (url: URL) => Object.fromEntries(url.searchParams);
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns the podcast's days and totals", async () => {
+    const { call, requests } = await open([{ method: 'GET', path: DAILY, body: fixture('daily-downloads') }]);
+    const result = await call('fireside_get_daily_downloads', { podcast: POD });
+    expect(result.isError).toBeFalsy();
+    expect(params(requests[0]!.url)).toEqual({});
+    expect(result.structuredContent).toEqual({
+      days: [
+        { day: '2026-10-01', downloads: 120, spotify: 15, total: 135 },
+        { day: '2026-10-02', downloads: 80, spotify: 5, total: 85 },
+      ],
+      start_date: '2026-10-01',
+      end_date: '2026-10-02',
+      time_zone: 'Eastern Time (US & Canada)',
+      downloads: 200,
+      spotify: 20,
+      total: 220,
+    });
+  });
+
+  it("asks for one episode's days", async () => {
+    const path = `podcasts/${POD}/episodes/${EP}/metrics/daily`;
+    const { call, requests } = await open([{ method: 'GET', path, body: fixture('daily-downloads') }]);
+    expect((await call('fireside_get_daily_downloads', { podcast: POD, episode: EP })).isError).toBeFalsy();
+    expect(requests).toHaveLength(1);
+  });
+
+  it('splits a range longer than 90 days and merges it', async () => {
+    const { call, requests } = await open([
+      { method: 'GET', path: DAILY, body: days('2026-01-01', '2026-01-01') },
+      { method: 'GET', path: DAILY, body: days('2026-01-02', '2026-04-01') },
+    ]);
+    const result = await call('fireside_get_daily_downloads', {
+      podcast: POD,
+      start_date: '2026-01-01',
+      end_date: '2026-04-01',
+    });
+    expect(result.isError).toBeFalsy();
+    expect(requests.map((r) => params(r.url))).toEqual([
+      { start_date: '2026-01-01', end_date: '2026-01-01' },
+      { start_date: '2026-01-02', end_date: '2026-04-01' },
+    ]);
+    const out = result.structuredContent as { days: { day: string }[]; total: number; start_date: string; end_date: string };
+    expect(out.days).toHaveLength(91);
+    expect(new Set(out.days.map((d) => d.day)).size).toBe(91);
+    expect(out).toMatchObject({ start_date: '2026-01-01', end_date: '2026-04-01', total: 91 * 11 });
+  });
+
+  it('refuses more than a year before calling Fireside', async () => {
+    const { call, requests } = await open([]);
+    const result = await call('fireside_get_daily_downloads', {
+      podcast: POD,
+      start_date: '2026-01-01',
+      end_date: '2027-01-02',
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toMatch(/year/);
+    expect(requests).toHaveLength(0);
+  });
+
+  it('refuses a start after the end', async () => {
+    const { call, requests } = await open([]);
+    const result = await call('fireside_get_daily_downloads', {
+      podcast: POD,
+      start_date: '2026-02-02',
+      end_date: '2026-02-01',
+    });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toMatch(/on or after/);
+    expect(requests).toHaveLength(0);
+  });
+
+  it('refuses an impossible date', async () => {
+    const { call, requests } = await open([]);
+    const result = await call('fireside_get_daily_downloads', { podcast: POD, end_date: '2026-02-30' });
+    expect(result.isError).toBe(true);
+    expect(requests).toHaveLength(0);
+  });
+
+  it('sends an open-ended recent range as is', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-22T12:00:00Z'));
+    const { call, requests } = await open([{ method: 'GET', path: DAILY, body: days('2026-08-01', '2026-10-22') }]);
+    const result = await call('fireside_get_daily_downloads', { podcast: POD, start_date: '2026-08-01' });
+    expect(result.isError).toBeFalsy();
+    expect(requests.map((r) => params(r.url))).toEqual([{ start_date: '2026-08-01' }]);
+  });
+
+  // 88 days before UTC today stays within 90 days of the podcast's own today in any time zone; 89 may not.
+  it.each([
+    ['2026-07-27', [{ start_date: '2026-07-27' }]],
+    ['2026-07-26', [{}, { start_date: '2026-07-26', end_date: '2026-10-22' }]],
+  ])('splits an open-ended range starting %s only when it may exceed 90 days', async (start, expected) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-22T12:00:00Z'));
+    const { call, requests } = await open([
+      { method: 'GET', path: DAILY, body: days(expected.length === 1 ? start : '2026-09-23', '2026-10-22') },
+      { method: 'GET', path: DAILY, body: days(start, '2026-10-22') },
+    ]);
+    const result = await call('fireside_get_daily_downloads', { podcast: POD, start_date: start });
+    expect(result.isError).toBeFalsy();
+    expect(requests.map((r) => params(r.url))).toEqual(expected);
+  });
+
+  it('discovers today before splitting an open-ended range', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-22T12:00:00Z'));
+    const { call, requests } = await open([
+      { method: 'GET', path: DAILY, body: days('2026-09-23', '2026-10-22') },
+      { method: 'GET', path: DAILY, body: days('2026-03-01', '2026-04-25') },
+      { method: 'GET', path: DAILY, body: days('2026-04-26', '2026-07-24') },
+      { method: 'GET', path: DAILY, body: days('2026-07-25', '2026-10-22') },
+    ]);
+    const result = await call('fireside_get_daily_downloads', { podcast: POD, start_date: '2026-03-01' });
+    expect(result.isError).toBeFalsy();
+    expect(requests.map((r) => params(r.url))).toEqual([
+      {},
+      { start_date: '2026-03-01', end_date: '2026-04-25' },
+      { start_date: '2026-04-26', end_date: '2026-07-24' },
+      { start_date: '2026-07-25', end_date: '2026-10-22' },
+    ]);
+    const out = result.structuredContent as { days: { day: string }[]; start_date: string; end_date: string };
+    expect(out.days).toHaveLength(236);
+    expect(out).toMatchObject({ start_date: '2026-03-01', end_date: '2026-10-22' });
+  });
+
+  it('fails the whole call when a later chunk fails', async () => {
+    const { call } = await open([
+      { method: 'GET', path: DAILY, body: days('2026-01-01', '2026-01-01') },
+      { method: 'GET', path: DAILY, status: 500, body: { error: { message: 'Something went wrong' } } },
+    ]);
+    const result = await call('fireside_get_daily_downloads', {
+      podcast: POD,
+      start_date: '2026-01-01',
+      end_date: '2026-04-01',
+    });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
   });
 });
 

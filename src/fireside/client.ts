@@ -3,6 +3,7 @@ import * as z from 'zod/v4';
 import { SERVER_NAME, SERVER_VERSION } from '../version.js';
 import { FileUploadError, FiresideApiError, FiresideResponseShapeError } from './errors.js';
 import {
+  dailyDownloadsEnvelope,
   episodeMetricsSchema,
   episodeSchema,
   errorBodySchema,
@@ -51,6 +52,12 @@ export interface PublishOptions {
 export interface PageOptions {
   page?: number | undefined;
   per_page?: number | undefined;
+}
+
+/** Inclusive YYYY-MM-DD days in the podcast's time zone; Fireside answers at most 90 days per request. */
+export interface DailyRange {
+  start_date?: string | undefined;
+  end_date?: string | undefined;
 }
 
 export interface FiresideClientOptions {
@@ -226,6 +233,15 @@ export class FiresideClient {
   getMonthlyDownloads(podcast: string, page: PageOptions = {}, signal?: AbortSignal) {
     return this.#request('GET', `podcasts/${seg(podcast)}/metrics/downloads`, monthlyDownloadsEnvelope, {
       query: { ...page },
+      signal,
+    });
+  }
+
+  /** Downloads per day for the whole podcast, or for one episode when `episode` is given. */
+  getDailyDownloads(podcast: string, episode: string | undefined, range: DailyRange = {}, signal?: AbortSignal) {
+    const scope = episode === undefined ? '' : `episodes/${seg(episode)}/`;
+    return this.#request('GET', `podcasts/${seg(podcast)}/${scope}metrics/daily`, dailyDownloadsEnvelope, {
+      query: { ...range },
       signal,
     });
   }

@@ -116,9 +116,14 @@ export function docsFingerprint(html: string): string[] {
     at('section', section.title);
     for (const block of codeBlocks(section.html)) {
       const text = block.trim();
-      const endpoint = /^(GET|POST|PUT|PATCH|DELETE) (\/\S+)$/.exec(text);
-      if (endpoint) {
-        at('endpoint', `${endpoint[1]} ${endpoint[2]}`);
+      // A block may list several endpoints, one per line (Downloads by Day lists two).
+      const endpoints = text
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => /^(GET|POST|PUT|PATCH|DELETE) (\/\S+)$/.exec(line));
+      if (endpoints.length > 0 && endpoints.every(Boolean)) {
+        for (const endpoint of endpoints) at('endpoint', `${endpoint![1]} ${endpoint![2]}`);
         continue;
       }
       if (!text.startsWith('{') && !text.startsWith('[')) continue;

@@ -76,6 +76,21 @@ describe('FiresideClient reads', () => {
     expect(monthly.data[0]).toEqual({ date: '2026-03-01', value: 1500 });
   });
 
+  it('gets daily downloads for a podcast or one episode', async () => {
+    const { c, requests } = client([
+      { method: 'GET', path: `podcasts/${POD}/metrics/daily`, body: fixture('daily-downloads') },
+      { method: 'GET', path: `podcasts/${POD}/episodes/${EP}/metrics/daily`, body: fixture('daily-downloads') },
+    ]);
+    const podcast = await c.getDailyDownloads(POD, undefined);
+    expect(podcast.meta.total).toBe(220);
+    expect(podcast.data[0]).toEqual({ day: '2026-10-01', downloads: 120, spotify: 15, total: 135 });
+    expect([...requests[0]!.url.searchParams.keys()]).toEqual([]);
+
+    await c.getDailyDownloads(POD, EP, { start_date: '2026-09-01', end_date: '2026-09-30' });
+    expect(requests[1]!.url.searchParams.get('start_date')).toBe('2026-09-01');
+    expect(requests[1]!.url.searchParams.get('end_date')).toBe('2026-09-30');
+  });
+
   it('URL-encodes path segments', async () => {
     const { c, requests } = client([{ method: 'GET', path: 'podcasts/a%2Fb', body: fixture('podcast') }]);
     await c.getPodcast('a/b');

@@ -78,6 +78,7 @@ Podcasts and episodes can be named by token or by slug. An episode's slug defaul
 | `fireside_get_episode` | | Every field of one episode, including show notes. |
 | `fireside_get_episode_metrics` | | Downloads per episode at 1, 7, 14, 30 and 90 days, Spotify, and total. |
 | `fireside_get_monthly_downloads` | | Downloads per calendar month and the all-time total. |
+| `fireside_get_daily_downloads` | | Downloads per day for the podcast or one episode, with Spotify counted separately; up to a year per call. |
 | `fireside_create_episode` | ✓ | Create a private draft episode, optionally with audio, cover art and a transcript. |
 | `fireside_update_episode` | ✓ | Change title, subtitle, slug, show notes, season, type, explicit flag, audio, cover art or transcript. |
 | `fireside_upload_file` | ✓ | Upload an MP3, cover image (JPG, PNG, GIF or WebP) or plain-text transcript from `FIRESIDE_UPLOAD_DIRS`, and attach it to an episode or return a `file_url` for create and update. |
@@ -98,6 +99,7 @@ These come from the Fireside API itself:
 - Files must fit your plan's limits: cover art up to 1.91 MB, transcripts up to 195 KB, and audio within your plan's MP3 limit.
 - Episodes cannot be deleted, and podcast settings cannot be changed.
 - Publishing also posts to the podcast's connected social accounts when the episode is set to do so in the dashboard. The API cannot see or change that setting.
+- Daily downloads come back at most 90 days per request. The server combines requests, so one call covers up to a year; ask for longer periods in parts.
 - Requests are limited to 120 per minute per key. The server waits out short rate-limit pauses and reports longer ones.
 
 ## Development

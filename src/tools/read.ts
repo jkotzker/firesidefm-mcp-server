@@ -1,8 +1,19 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
-import { episodeSchema, meSchema, monthlyDownloadsSchema, paginationSchema, podcastSchema } from '../fireside/schemas.js';
+import type { DailyRange } from '../fireside/client.js';
+import {
+  type DailyDownloads,
+  dailyDownloadsSchema,
+  episodeSchema,
+  meSchema,
+  monthlyDownloadsSchema,
+  paginationSchema,
+  podcastSchema,
+} from '../fireside/schemas.js';
 import { episodeArg, guarded, ok, pageArgs, pick, podcastArg, type ToolDeps } from './common.js';
+import { daysBetween, MAX_DAYS_PER_REQUEST, mergeDaily, planDailyRanges, utcToday } from './daily.js';
+import { ToolInputError } from './errors.js';
 import {
   episodeMetricsSummary,
   episodeMetricsSummarySchema,
@@ -160,6 +171,67 @@ export function registerReadTools(server: McpServer, { client, resolver }: ToolD
           ctx.mcpReq.signal,
         );
         return ok({ months: res.data, total_downloads: res.meta.total_downloads, pagination: res.pagination });
+      }),
+  );
+
+  const count = z.number().int();
+  server.registerTool(
+    'fireside_get_daily_downloads',
+    {
+      title: 'Get daily downloads',
+      description:
+        'Day-by-day downloads, oldest first, for a whole podcast or, with episode, for one episode. Days with no ' +
+        'downloads appear with zeros, and each day is a calendar day in the podcast’s time zone. downloads is ' +
+        'Fireside’s count, spotify is reported by Spotify, and total is their sum. One call covers up to a year; ' +
+        'for a longer period, call once for each part.',
+      inputSchema: z.strictObject({
+        podcast: podcastArg(resolver),
+        episode: episodeArg.optional().describe(
+          'Episode token (UUID) or slug, as shown by fireside_list_episodes. Leave out for the whole podcast.',
+        ),
+        start_date: z.iso.date().optional().describe('First day, YYYY-MM-DD. Defaults to 29 days before end_date.'),
+        end_date: z.iso.date().optional().describe('Last day, YYYY-MM-DD. Defaults to today in the podcast’s time zone.'),
+      }),
+      outputSchema: z.object({
+        days: z.array(dailyDownloadsSchema),
+        start_date: z.string(),
+        end_date: z.string(),
+        time_zone: z.string(),
+        downloads: count,
+        spotify: count,
+        total: count,
+      }),
+      annotations: READ,
+    },
+    (args, ctx) =>
+      guarded(async () => {
+        const signal = ctx.mcpReq.signal;
+        const podcast = await resolver.podcast(args.podcast, signal);
+        const episode = args.episode === undefined ? undefined : await resolver.episode(podcast, args.episode, signal);
+        const fetchDays = (range: DailyRange) => client.getDailyDownloads(podcast, episode, range, signal);
+        const fetchAll = async (start: string, end: string) => {
+          const parts: DailyDownloads[] = [];
+          // One at a time: the requests share the key's rate limit, and the days must stay in order.
+          for (const range of planDailyRanges(start, end)) parts.push(await fetchDays(range));
+          return ok(mergeDaily(parts));
+        };
+
+        const { start_date: start, end_date: end } = args;
+        if (start !== undefined && end !== undefined) return fetchAll(start, end);
+        // Without a start, Fireside's own default of 30 days applies.
+        if (start === undefined) return ok(mergeDaily([await fetchDays(pick(args, 'end_date'))]));
+        // The podcast's date is within a day of UTC, so this range is at most 90 days whatever its time zone.
+        if (daysBetween(start, utcToday()) <= MAX_DAYS_PER_REQUEST - 2) {
+          return ok(mergeDaily([await fetchDays({ start_date: start })]));
+        }
+        // The API does not say which time zone a podcast uses, so ask Fireside for its "today" first.
+        const today = (await fetchDays({})).meta.end_date;
+        if (start > today) {
+          throw new ToolInputError(
+            `start_date ${start} is after today (${today}) for this podcast. Give a start_date on or before today.`,
+          );
+        }
+        return fetchAll(start, today);
       }),
   );
 }

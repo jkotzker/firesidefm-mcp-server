@@ -15,6 +15,8 @@ import type * as z from 'zod/v4';
 
 import { FiresideClient } from '../src/fireside/client.js';
 import {
+  dailyDownloadsEnvelope,
+  dailyDownloadsSchema,
   downloadsSchema,
   episodeMetricsSchema,
   episodeSchema,
@@ -111,6 +113,11 @@ async function direct(token: string) {
   if (monthly.data[0]) compareKeys('monthly downloads item', monthly.data[0], monthlyDownloadsSchema);
   compareKeys('monthly downloads meta', monthly.meta, monthlyDownloadsEnvelope.shape.meta);
 
+  const daily = await client.getDailyDownloads(pod.token, undefined);
+  report('GET metrics/daily', true, `${daily.data.length} day(s)`);
+  if (daily.data[0]) compareKeys('daily downloads item', daily.data[0], dailyDownloadsSchema);
+  compareKeys('daily downloads meta', daily.meta, dailyDownloadsEnvelope.shape.meta);
+
   return { podcastSlug: pod.slug, episodeSlug: published?.slug };
 }
 
@@ -128,7 +135,7 @@ async function overMcp(token: string, podcastSlug: string, episodeSlug: string |
     report('protocol version', true, client.getNegotiatedProtocolVersion() ?? 'unknown');
     const { tools } = await client.listTools();
     const writes = tools.filter((t) => !t.annotations?.readOnlyHint).map((t) => t.name);
-    report('only read tools offered', tools.length === 7 && writes.length === 0, `${tools.length} tools; write tools: ${writes.join(', ') || 'none'}`);
+    report('only read tools offered', tools.length === 8 && writes.length === 0, `${tools.length} tools; write tools: ${writes.join(', ') || 'none'}`);
 
     const call = async (name: string, args: Record<string, unknown>) =>
       (await client.callTool({ name, arguments: args })) as CallToolResult;
