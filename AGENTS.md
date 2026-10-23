@@ -4,7 +4,7 @@ Instructions for coding agents working in this repository. User-facing documenta
 
 ## Project
 
-An unofficial stdio [MCP](https://modelcontextprotocol.io) server for the [Fireside.fm](https://fireside.fm) podcast hosting API, written in TypeScript and published to npm as `firesidefm-mcp-server` and to the MCP Registry as `io.github.jkotzker/firesidefm-mcp-server`. It exposes 7 read tools and 5 write tools over the 12 endpoints the API documents at <https://fireside.fm/docs/api>.
+An unofficial stdio [MCP](https://modelcontextprotocol.io) server for the [Fireside.fm](https://fireside.fm) podcast hosting API, written in TypeScript and published to npm as `firesidefm-mcp-server` and to the MCP Registry as `io.github.jkotzker/firesidefm-mcp-server`. It exposes 8 read tools and 5 write tools over the 14 endpoints the API documents at <https://fireside.fm/docs/api>.
 
 ## Commands
 
@@ -35,7 +35,7 @@ There is no linter or formatter; match the surrounding code.
 - `src/startup.ts`: checks the key with `GET /me` on a short budget (one attempt, 10 s) and decides an `Access` value. A 401 is fatal; any other failure starts the server read-only (`unverified`).
 - `src/server.ts`: `createServer(deps)` sets the server instructions and registers the read tools, plus the write tools only when `access === 'read_write'`, and `fireside_upload_file` only when upload directories are configured as well.
 - `src/fireside/`: the HTTP layer, with no MCP knowledge. `client.ts` has one `FiresideClient` method per endpoint, with per-attempt timeouts and 429 retries that honour `Retry-After`. `schemas.ts` holds the documented response shapes. `errors.ts` defines `FiresideApiError` and `FiresideResponseShapeError`.
-- `src/tools/`: the MCP layer. `read.ts`, `write.ts` and `upload.ts` register the tools. `common.ts` has `ok`, `guarded`, the shared argument builders and `pick`. `resolve.ts` holds `Resolver`, which turns podcast and episode slugs into the tokens the API requires. `shape.ts` has the trimmed summaries returned by list and write tools. `errors.ts` turns failures into text for the model (`describeError`, `ToolInputError`).
+- `src/tools/`: the MCP layer. `read.ts`, `write.ts` and `upload.ts` register the tools. `common.ts` has `ok`, `guarded`, the shared argument builders and `pick`. `resolve.ts` holds `Resolver`, which turns podcast and episode slugs into the tokens the API requires. `shape.ts` has the trimmed summaries returned by list and write tools. `errors.ts` turns failures into text for the model (`describeError`, `ToolInputError`). `daily.ts` splits a daily-downloads range into requests Fireside accepts and merges the results.
 - `src/version.ts`: server name and version.
 
 ## Rules
@@ -105,4 +105,5 @@ Fireside publishes no feed of API changes. `scripts/upstream-watch.ts` reduces t
 - The dashboard (not the API docs) suggests mono, 64–96 kb/s, 44.1 kHz for MP3s, and shows the plan's MP3 size limit, which the API does not expose. `src/tools/mp3.ts` reads these properties from the file's frame and Xing/Info/VBRI headers; `fireside_upload_file` refuses non-MP3 audio, and stops a file that differs from the suggestions unless `accept_audio_specs` is set.
 - A key can be switched between Read Only and Read/Write in place; the server picks its tools at startup, so it needs a restart.
 - Publishing can also post to the podcast's connected social accounts, a per-episode dashboard setting the API cannot read.
+- Downloads by Day answers at most 90 days per request; `fireside_get_daily_downloads` combines requests up to a year (366 days). Get Podcast does not return the podcast's time zone, so an open-ended range that may exceed 90 days first asks Fireside for its "today".
 - Rate limit: 120 requests per minute per key.
