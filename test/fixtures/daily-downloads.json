@@ -1,0 +1,14 @@
+{
+  "data": [
+    { "day": "2026-10-01", "downloads": 120, "spotify": 15, "total": 135 },
+    { "day": "2026-10-02", "downloads": 80, "spotify": 5, "total": 85 }
+  ],
+  "meta": {
+    "start_date": "2026-10-01",
+    "end_date": "2026-10-02",
+    "time_zone": "Eastern Time (US & Canada)",
+    "downloads": 200,
+    "spotify": 20,
+    "total": 220
+  }
+}
