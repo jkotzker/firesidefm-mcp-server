@@ -67,6 +67,40 @@ describe('draftGuard', () => {
     expect(sent).toEqual([]);
   });
 
+  it.each(['chapters', 'links'])("allows changes to the draft's %s, and to no other episode's", async (list) => {
+    const { guard, sent } = setup();
+    guard.allow(DRAFT);
+    const base = `${API}podcasts/${POD}/episodes/${DRAFT}/${list}`;
+    await guard.fetch(base, { method: 'PUT' });
+    await guard.fetch(base, { method: 'POST' });
+    await guard.fetch(`${base}/item-1`, { method: 'PATCH' });
+    await guard.fetch(`${base}/item-1`, { method: 'DELETE' });
+    expect(sent).toHaveLength(4);
+    const other = `${API}podcasts/${POD}/episodes/${OTHER}/${list}`;
+    for (const method of ['PUT', 'POST']) expect(() => guard.fetch(other, { method })).toThrow(/only the draft/);
+    expect(() => guard.fetch(`${other}/item-1`, { method: 'DELETE' })).toThrow(/only the draft/);
+    expect(sent).toHaveLength(4);
+  });
+
+  it.each([
+    ['PATCH', ''],
+    ['DELETE', ''],
+    ['PUT', '/item-1'],
+    ['POST', '/item-1'],
+  ])("refuses %s on the draft's chapter list path%s", (method, suffix) => {
+    const { guard, sent } = setup();
+    guard.allow(DRAFT);
+    expect(() => guard.fetch(`${API}podcasts/${POD}/episodes/${DRAFT}/chapters${suffix}`, { method })).toThrow(/not allowed here/);
+    expect(sent).toEqual([]);
+  });
+
+  it('refuses a change to the podcast itself', () => {
+    const { guard, sent } = setup();
+    guard.allow(DRAFT);
+    expect(() => guard.fetch(`${API}podcasts/${POD}`, { method: 'PATCH' })).toThrow(/only the draft/);
+    expect(sent).toEqual([]);
+  });
+
   it.each(['DELETE', 'PUT'])('refuses %s', (method) => {
     const { guard } = setup();
     guard.allow(DRAFT);

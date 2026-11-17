@@ -3,6 +3,9 @@
 //   security add-generic-password -U -s firesidefm-mcp-server -a read-only -w   # once; prompts for the key
 //   npm run build && npx tsx scripts/live-read-check.ts
 //
+// Or pass the key in FIRESIDE_API_TOKEN instead of the Keychain, for example from a password manager
+// (`op run --env-file … -- npx tsx scripts/live-read-check.ts`).
+//
 // It refuses to run unless the key is Read Only, sends only GET requests, and prints field names,
 // counts and slugs, never response values such as preview URLs or download figures.
 
@@ -14,12 +17,17 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type * as z from 'zod/v4';
 
 import { FiresideClient } from '../src/fireside/client.js';
+import { FiresideApiError } from '../src/fireside/errors.js';
 import {
+  breakdownEnvelope,
+  breakdownRowSchema,
+  chapterSchema,
   dailyDownloadsEnvelope,
   dailyDownloadsSchema,
   downloadsSchema,
   episodeMetricsSchema,
   episodeSchema,
+  linkSchema,
   meSchema,
   monthlyDownloadsEnvelope,
   monthlyDownloadsSchema,
@@ -31,6 +39,7 @@ const KEYCHAIN_SERVICE = 'firesidefm-mcp-server';
 const KEYCHAIN_ACCOUNT = 'read-only';
 
 function readToken(): string {
+  if (process.env.FIRESIDE_API_TOKEN) return process.env.FIRESIDE_API_TOKEN.trim();
   return execFileSync('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-a', KEYCHAIN_ACCOUNT, '-w'], {
     encoding: 'utf8',
   }).trim();
@@ -97,6 +106,13 @@ async function direct(token: string) {
     const episode = await client.getEpisode(pod.token, published.token);
     report('GET episodes/:episode', episode.data.token === published.token, `published episode slug ${published.slug}`);
     compareKeys('episode', episode.data, episodeSchema);
+
+    const chapters = await client.listChapters(pod.token, published.token);
+    report('GET episodes/:episode/chapters', true, `${chapters.data.length} chapter(s), audio_chapters ${chapters.audio_chapters}`);
+    if (chapters.data[0]) compareKeys('chapter', chapters.data[0], chapterSchema);
+    const links = await client.listLinks(pod.token, published.token);
+    report('GET episodes/:episode/links', true, `${links.data.length} link(s)`);
+    if (links.data[0]) compareKeys('link', links.data[0], linkSchema);
   } else {
     report('GET episodes/:episode', false, 'no published episode on page 1 to read');
   }
@@ -118,6 +134,17 @@ async function direct(token: string) {
   if (daily.data[0]) compareKeys('daily downloads item', daily.data[0], dailyDownloadsSchema);
   compareKeys('daily downloads meta', daily.meta, dailyDownloadsEnvelope.shape.meta);
 
+  try {
+    const platforms = await client.getBreakdown(pod.token, undefined, 'platforms', { per_page: 5 });
+    report('GET metrics/platforms', true, `${platforms.data.length} row(s)`);
+    if (platforms.data[0]) compareKeys('breakdown row', platforms.data[0], breakdownRowSchema);
+    compareKeys('breakdown meta', platforms.meta, breakdownEnvelope.shape.meta);
+  } catch (error) {
+    // A plan without Advanced Metrics is a documented answer, not a failure of this check.
+    if (!(error instanceof FiresideApiError) || error.details.code !== 'advanced_metrics_required') throw error;
+    report('GET metrics/platforms', true, 'advanced_metrics_required: this plan has no Advanced Metrics');
+  }
+
   return { podcastSlug: pod.slug, episodeSlug: published?.slug };
 }
 
@@ -135,7 +162,7 @@ async function overMcp(token: string, podcastSlug: string, episodeSlug: string |
     report('protocol version', true, client.getNegotiatedProtocolVersion() ?? 'unknown');
     const { tools } = await client.listTools();
     const writes = tools.filter((t) => !t.annotations?.readOnlyHint).map((t) => t.name);
-    report('only read tools offered', tools.length === 8 && writes.length === 0, `${tools.length} tools; write tools: ${writes.join(', ') || 'none'}`);
+    report('only read tools offered', tools.length === 11 && writes.length === 0, `${tools.length} tools; write tools: ${writes.join(', ') || 'none'}`);
 
     const call = async (name: string, args: Record<string, unknown>) =>
       (await client.callTool({ name, arguments: args })) as CallToolResult;
@@ -162,7 +189,7 @@ function textOf(result: CallToolResult): string {
 }
 
 const token = readToken();
-console.log(`Key from Keychain: ${token.length} characters, ${/^fire_[0-9a-f]{64}$/.test(token) ? 'expected format' : 'UNEXPECTED format'}`);
+console.log(`Key from ${process.env.FIRESIDE_API_TOKEN ? 'FIRESIDE_API_TOKEN' : 'Keychain'}: ${token.length} characters, ${/^fire_[0-9a-f]{64}$/.test(token) ? 'expected format' : 'UNEXPECTED format'}`);
 const { podcastSlug, episodeSlug } = await direct(token);
 await overMcp(token, podcastSlug, episodeSlug);
 console.log(`\n${failures === 0 ? 'All checks passed.' : `${failures} check(s) failed.`}`);
