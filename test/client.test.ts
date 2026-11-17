@@ -150,6 +150,22 @@ describe('FiresideClient errors', () => {
     expect((error as FiresideApiError).details).toMatchObject({ status, code, method: 'POST' });
   });
 
+  it('keeps an Update Podcast upload_failed from passing the podcast off as a saved episode', async () => {
+    const podcast = (fixture('podcast') as { data: unknown }).data;
+    const { c } = client([
+      {
+        method: 'PATCH',
+        path: `podcasts/${POD}`,
+        status: 422,
+        body: { error: { message: 'cover could not be processed', code: 'upload_failed' }, data: podcast },
+      },
+    ]);
+    const error = await c.updatePodcast(POD, { cover_file_url: 'https://x.test/c' }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FiresideApiError);
+    expect((error as FiresideApiError).details.code).toBe('upload_failed');
+    expect((error as FiresideApiError).details.savedEpisode).toBeUndefined();
+  });
+
   it('carries per-field validation messages', async () => {
     const { c } = client([{ method: 'POST', path: `podcasts/${POD}/episodes`, status: 422, body: fixture('error-validation') }]);
     const error = (await c.createEpisode(POD, { slug: 'taken' }).catch((e: unknown) => e)) as FiresideApiError;

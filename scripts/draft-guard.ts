@@ -1,7 +1,8 @@
 /**
  * A fetch for live write checks that can touch only one new draft episode: it allows GETs, a
- * single POST that creates an episode, and PATCHes to episodes registered with `allow()` (the
- * draft just created). Publish and unpublish, and everything else, are refused before sending.
+ * single POST that creates an episode, PATCHes to episodes registered with `allow()` (the draft
+ * just created), and changes to that draft's chapters and links. Publish and unpublish, changes to
+ * the podcast, and everything else, are refused before sending.
  */
 export function draftGuard(base: typeof fetch = fetch) {
   const writable = new Set<string>();
@@ -14,7 +15,15 @@ export function draftGuard(base: typeof fetch = fetch) {
       throw new Error(`Refusing ${method} ${path}: ${why}`);
     };
     if (/publish/.test(path)) refuse('publish and unpublish are never sent by this check.');
-    if (method === 'POST') {
+    const list = /^podcasts\/[^/]+\/episodes\/([^/]+)\/(chapters|links)(?:\/([^/]+))?$/.exec(path);
+    if (list && method !== 'GET') {
+      const [, episode, , item] = list;
+      if (!writable.has(episode!)) refuse('only the draft created by this run may have its chapters or links changed.');
+      // PUT and POST address the whole list; PATCH and DELETE one chapter or link.
+      const wholeList = (method === 'PUT' || method === 'POST') && item === undefined;
+      const oneItem = (method === 'PATCH' || method === 'DELETE') && item !== undefined;
+      if (!wholeList && !oneItem) refuse('method not allowed here.');
+    } else if (method === 'POST') {
       if (!/^podcasts\/[^/]+\/episodes$/.test(path)) refuse('the only POST allowed is creating an episode.');
       if (creates > 0) refuse('this check creates exactly one draft.');
       creates++;

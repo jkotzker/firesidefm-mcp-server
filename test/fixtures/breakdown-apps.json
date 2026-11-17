@@ -1,0 +1,9 @@
+{
+  "data": [
+    { "name": "Apple Podcasts", "downloads": 5200, "percent_of_total": 52.0, "percent_of_platform": 74.29 },
+    { "name": "Overcast", "downloads": 1800, "percent_of_total": 18.0, "percent_of_platform": 25.71 },
+    { "name": null, "downloads": 0, "percent_of_total": 0.0, "percent_of_platform": 0.0 }
+  ],
+  "meta": { "platform": "iOS", "platform_downloads": 7000, "total_downloads": 10000 },
+  "pagination": { "page": 1, "per_page": 25, "max_per_page": 100, "previous": null, "next": null }
+}
