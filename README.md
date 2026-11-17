@@ -1,15 +1,25 @@
 # firesidefm-mcp-server
 
-An [MCP](https://modelcontextprotocol.io) server for the [Fireside.fm](https://fireside.fm) podcast hosting API. It lets an MCP host such as Claude Code or Claude Desktop read your podcasts, episodes and download statistics, create, edit, publish and unpublish episodes, and upload episode audio, cover art and transcripts.
+An [MCP](https://modelcontextprotocol.io) server for the [Fireside.fm](https://fireside.fm) podcast hosting API. It lets an MCP host such as Claude Code or Claude Desktop read your podcasts, episodes, and download statistics (including downloads by platform, app, and location); create, edit, publish, and unpublish episodes; manage episode chapters and links; change your podcast's description, cover art, and episode defaults; and upload episode audio, cover art, and transcripts, as well as the podcast's cover art.
 
 This is an unofficial project. It is not affiliated with or endorsed by Fireside.
+
+## Fireside's own MCP server
+
+Fireside also runs an MCP server of its own, at `https://fireside.fm/mcp`, described in the [Fireside API documentation](https://fireside.fm/docs/api#mcp). It is hosted by Fireside, and you sign in through your browser or send an API key. This server covers the same API and differs in these ways:
+
+- It runs on your computer and talks to Fireside with your API key.
+- It uploads files itself, from folders you choose, and checks MP3s before sending them. Your assistant does not need to be able to run commands.
+- With a Read Only key, or with `FIRESIDE_READ_ONLY` set, it does not offer the tools that change anything.
+- Podcasts and episodes can be named by slug or episode number as well as by token, and a default podcast can be set.
+- Daily downloads cover up to a year in one call.
 
 ## Requirements
 
 - Node.js 22 or later
 - A Fireside API key, created at <https://app.fireside.fm/api_tokens>
 
-A **Read Only** key enables the read tools; a **Read/Write** key also enables the tools that change episodes. Use a Read Only key unless you want your assistant to create, edit or publish episodes. A key covers every podcast on your Fireside account. A key can be switched between Read Only and Read/Write under Account > API Keys; restart the server afterwards, since it chooses its tools when it starts.
+A **Read Only** key enables the read tools; a **Read/Write** key also enables the tools that change episodes, chapters, links, and podcast settings. Use a Read Only key unless you want your assistant to make changes. A key covers every podcast on your Fireside account. A key can be switched between Read Only and Read/Write under Account > API Keys; restart the server afterwards, since it chooses its tools when it starts.
 
 ## Configuration
 
@@ -73,21 +83,35 @@ Podcasts and episodes can be named by token or by slug. An episode's slug defaul
 |---|---|---|
 | `fireside_get_account` | | The connected account and whether its key is Read Only or Read/Write. |
 | `fireside_list_podcasts` | | Podcasts you own or collaborate on. |
-| `fireside_get_podcast` | | One podcast's details and all-time downloads. |
+| `fireside_get_podcast` | | One podcast's details and all-time downloads, and the episode defaults for an owner, admin, or manager. |
 | `fireside_list_episodes` | | Episodes, newest first, including drafts and scheduled ones; filter by status. |
 | `fireside_get_episode` | | Every field of one episode, including show notes. |
 | `fireside_get_episode_metrics` | | Downloads per episode at 1, 7, 14, 30 and 90 days, Spotify, and total. |
 | `fireside_get_monthly_downloads` | | Downloads per calendar month and the all-time total. |
 | `fireside_get_daily_downloads` | | Downloads per day for the podcast or one episode, with Spotify counted separately; up to a year per call. |
+| `fireside_get_download_breakdown` | | All-time downloads by platform, app, country, or region, for the podcast or one episode. Needs a plan with Advanced Metrics. |
+| `fireside_list_chapters` | | An episode's chapters, and whether they have been written into its MP3 yet. |
+| `fireside_list_links` | | An episode's links, in order, with click counts where Fireside reports them. |
 | `fireside_create_episode` | ✓ | Create a private draft episode, optionally with audio, cover art and a transcript. |
 | `fireside_update_episode` | ✓ | Change title, subtitle, slug, show notes, season, type, explicit flag, audio, cover art or transcript. |
-| `fireside_upload_file` | ✓ | Upload an MP3, cover image (JPG, PNG, GIF or WebP) or plain-text transcript from `FIRESIDE_UPLOAD_DIRS`, and attach it to an episode or return a `file_url` for create and update. |
+| `fireside_upload_file` | ✓ | Upload an MP3, cover image (JPG, PNG, GIF, or WebP), or plain-text transcript from `FIRESIDE_UPLOAD_DIRS`, and attach it to an episode or return a `file_url` for create and update; or upload the podcast's cover art for `fireside_update_podcast`. |
 | `fireside_publish_episode` | ✓ | Publish now, schedule, or backdate; public or unlisted. |
 | `fireside_unpublish_episode` | ✓ | Return an episode to a private draft. |
+| `fireside_set_chapters` | ✓ | Replace an episode's whole chapter list. |
+| `fireside_add_chapter` | ✓ | Add one chapter. |
+| `fireside_update_chapter` | ✓ | Change one chapter's start or title. |
+| `fireside_delete_chapter` | ✓ | Delete one chapter. |
+| `fireside_set_links` | ✓ | Replace an episode's whole link list, which also reorders it. |
+| `fireside_add_link` | ✓ | Add one link to the end of the list. |
+| `fireside_update_link` | ✓ | Change one link's URL, title, or excerpt. |
+| `fireside_delete_link` | ✓ | Delete one link and its click count. |
+| `fireside_update_podcast` | ✓ | Change the podcast's subtitle, description, cover art, or episode defaults. |
 
 `fireside_get_episode` includes the episode's preview link, which plays the episode for anyone who has it, even before release.
 
 Before uploading an MP3, the server reads its headers. A file that holds no MP3 audio (such as a renamed WAV) is refused. One that differs from the settings the Fireside dashboard suggests for MP3s (mono, 64–96 kb/s, 44.1 kHz) is stopped with a list of the differences; your assistant should ask you, and uploads it as it is only with `accept_audio_specs: true`. The audio limit depends on your Fireside plan, which the API does not report; Fireside checks the size before anything is sent, and the server then names the file's size as a likely cause.
+
+Chapters and links take effect in the episode's feed and page right away. Chapters are then written into the episode's MP3 in the background, and `audio_chapters` shows whether that has happened. The replace tools change the whole list or nothing: a chapter or link left out is deleted, and one sent without its token is added as new, so a link loses its click count unless its token is sent. Changes to the podcast's settings and cover art appear on its website and in its RSS feed right away.
 
 Uploaded audio transfers to the episode in the background; `audio_status` on the episode shows `processing`, then `ready` or `failed` (with `audio_error`). Cover art and transcripts are attached during the call. Large audio files can take longer to upload than an MCP host allows for a tool call; in Claude Code, raise the limit with the `MCP_TOOL_TIMEOUT` environment variable (milliseconds).
 
@@ -95,9 +119,11 @@ Uploaded audio transfers to the episode in the background; `audio_status` on the
 
 These come from the Fireside API itself:
 
-- Chapters cannot be uploaded through the API. Publishing an episode without audio fails.
-- Files must fit your plan's limits: cover art up to 1.91 MB, transcripts up to 195 KB, and audio within your plan's MP3 limit.
-- Episodes cannot be deleted, and podcast settings cannot be changed.
+- Publishing an episode without audio fails.
+- Files must fit your plan's limits: cover art up to 1.91 MB, transcripts up to 195 KB, and audio within your plan's MP3 limit. Podcast cover art must be square and at least 1400 pixels wide.
+- An MP3 uploaded with chapters of its own replaces the episode's chapters. Chapters that start after the audio ends are left out of the MP3.
+- Episodes cannot be deleted. A podcast's title, web address, custom domain, and RSS feed cannot be changed.
+- Downloads by platform, app, and location cover all time and cannot be limited to a date range.
 - Publishing also posts to the podcast's connected social accounts when the episode is set to do so in the dashboard. The API cannot see or change that setting.
 - Daily downloads come back at most 90 days per request. The server combines requests, so one call covers up to a year; ask for longer periods in parts.
 - Requests are limited to 120 per minute per key. The server waits out short rate-limit pauses and reports longer ones.
@@ -114,7 +140,7 @@ npm run check       # all of the above
 npm run dev         # run from source with tsx
 ```
 
-`scripts/` holds two checks that run against the real Fireside API with a key read from the macOS Keychain; see the comment at the top of each file. `live-read-check.ts` only reads. `live-draft-check.ts` creates and edits one draft episode, which you then delete in the dashboard; it refuses to send publish or unpublish requests.
+`scripts/` holds two checks that run against the real Fireside API with a key read from the macOS Keychain; see the comment at the top of each file. `live-read-check.ts` only reads. `live-draft-check.ts` creates and edits one draft episode and its chapters and links, which you then delete in the dashboard; it refuses to send publish or unpublish requests, or changes to the podcast.
 
 ## License
 
