@@ -41,6 +41,8 @@ beforeAll(() => {
   mkdirSync(join(allowed, 'folder.mp3'));
   if (process.platform !== 'win32') execFileSync('mkfifo', [join(allowed, 'pipe.mp3')]);
   writeFileSync(join(allowed, 'notes.txt'), 'Hello.\n');
+  // Only the extension matters to this server; Fireside checks the image itself.
+  writeFileSync(join(allowed, 'cover.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
   writeFileSync(join(allowed, 'readme.md'), '# Notes\n');
   writeFileSync(join(allowed, 'empty.txt'), '');
   writeFileSync(join(outside, 'secret.txt'), 'not for upload\n');
@@ -490,6 +492,25 @@ describe('fireside_upload_file', () => {
       file_url: FILE_URL,
       expires_at: '2026-10-13T15:00:00Z',
     });
+  });
+
+  it("uploads the podcast's cover art and leaves attaching it to fireside_update_podcast", async () => {
+    const { call, requests } = await open([uploadRoute('podcast_cover', 'image/png'), putRoute]);
+    const result = await call({ podcast: POD, path: join(allowed, 'cover.png'), podcast_cover: true });
+    expect(result.isError).toBeFalsy();
+    expect(requests.map((r) => r.method)).toEqual(['POST', 'PUT']);
+    expect(requests[0]!.body).toMatchObject({ kind: 'podcast_cover', filename: 'cover.png', content_type: 'image/png' });
+    expect(result.structuredContent).toMatchObject({ kind: 'podcast_cover', field: 'cover_file_url', file_url: FILE_URL });
+  });
+
+  it.each([
+    ['a podcast cover that is not an image', { path: () => join(allowed, 'episode.mp3') }, 'must be a .jpg'],
+    ['a podcast cover with an episode', { path: () => join(allowed, 'cover.png'), episode: EP }, 'not attached to an episode'],
+  ])('refuses %s before calling Fireside', async (_label, { path, ...rest }, message) => {
+    const { call, requests } = await open([]);
+    const result = await call({ podcast: POD, path: path(), podcast_cover: true, ...rest });
+    expect(text(result)).toContain(message);
+    expect(requests).toHaveLength(0);
   });
 
   it.each([

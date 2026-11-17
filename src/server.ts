@@ -1,6 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/server';
 
+import { registerBreakdownTool } from './tools/breakdowns.js';
+import { registerChapterTools } from './tools/chapters.js';
 import type { ToolDeps } from './tools/common.js';
+import { registerLinkTools } from './tools/links.js';
+import { registerPodcastWriteTools } from './tools/podcast.js';
 import { registerReadTools } from './tools/read.js';
 import { registerUploadTool } from './tools/upload.js';
 import { registerWriteTools } from './tools/write.js';
@@ -19,7 +23,9 @@ export interface ServerDeps extends ToolDeps {
 }
 
 const ACCESS_NOTE: Record<Access, string> = {
-  read_write: 'Publishing is public and may post to connected social accounts, so confirm before publishing.',
+  read_write:
+    'Publishing is public and may post to connected social accounts, so confirm before publishing. Changes to the ' +
+    "podcast's settings, and to a published episode's details, chapters and links, are public at once.",
   read_only_key:
     'This server is read-only because its API key is Read Only. The user can change the key to Read/Write under ' +
     'Account > API Keys in Fireside and restart the server.',
@@ -43,9 +49,14 @@ export function createServer(deps: ServerDeps): McpServer {
         ACCESS_NOTE[deps.access],
     },
   );
+  const write = deps.access === 'read_write';
   registerReadTools(server, deps);
-  if (deps.access === 'read_write') {
+  registerBreakdownTool(server, deps);
+  registerChapterTools(server, deps, write);
+  registerLinkTools(server, deps, write);
+  if (write) {
     registerWriteTools(server, deps);
+    registerPodcastWriteTools(server, deps);
     if (deps.uploadDirs.length > 0) registerUploadTool(server, deps);
   }
   return server;
@@ -54,8 +65,8 @@ export function createServer(deps: ServerDeps): McpServer {
 function uploadNote({ access, uploadDirs }: ServerDeps): string {
   if (access !== 'read_write') return '';
   return uploadDirs.length > 0
-    ? 'Episode audio, cover art and transcripts are uploaded with fireside_upload_file, only from the directories ' +
-        'the user configured; upload only files the user asked for. '
+    ? "Episode audio, cover art and transcripts, and the podcast's cover art, are uploaded with " +
+        'fireside_upload_file, only from the directories the user configured; upload only files the user asked for. '
     : 'File uploads are off because FIRESIDE_UPLOAD_DIRS is not set; the user can set it, or add files in the ' +
         'Fireside dashboard. ';
 }

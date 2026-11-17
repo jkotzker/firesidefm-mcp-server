@@ -1,0 +1,7 @@
+{
+  "data": [
+    { "token": "9b1c2d3e-0000-4000-8000-000000000001", "start": 0, "timecode": "00:00:00", "title": "Intro" },
+    { "token": "4e7a5b6c-0000-4000-8000-000000000002", "start": 330, "timecode": "00:05:30", "title": "Listener Mail" }
+  ],
+  "audio_chapters": "up_to_date"
+}

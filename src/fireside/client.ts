@@ -3,11 +3,16 @@ import * as z from 'zod/v4';
 import { SERVER_NAME, SERVER_VERSION } from '../version.js';
 import { FileUploadError, FiresideApiError, FiresideResponseShapeError } from './errors.js';
 import {
+  breakdownEnvelope,
+  chapterEnvelope,
+  chaptersEnvelope,
   dailyDownloadsEnvelope,
   episodeMetricsSchema,
   episodeSchema,
   errorBodySchema,
   itemEnvelope,
+  linkEnvelope,
+  linksEnvelope,
   listEnvelope,
   meSchema,
   monthlyDownloadsEnvelope,
@@ -33,7 +38,65 @@ export interface EpisodeFields {
   transcript_file_url?: string | undefined;
 }
 
-export type FileKind = 'audio' | 'cover' | 'transcript';
+/** The defaults new episodes start with. Update Podcast changes only the ones sent. */
+export interface EpisodeDefaults {
+  subtitle?: string | null | undefined;
+  description?: string | null | undefined;
+  keywords?: string | null | undefined;
+  tags?: string | null | undefined;
+  episode_type?: 'full' | 'trailer' | 'bonus' | undefined;
+  auto_season?: boolean | undefined;
+}
+
+/** Fields accepted by Update Podcast. Unknown fields, and the title, web address and feed, are refused. */
+export interface PodcastFields {
+  subtitle?: string | null | undefined;
+  description?: string | null | undefined;
+  /** A `file_url` from Upload a File with the kind `podcast_cover`. */
+  cover_file_url?: string | undefined;
+  episode_defaults?: EpisodeDefaults | undefined;
+}
+
+export interface ChapterFields {
+  /** Whole seconds, or a timecode such as `05:30` or `1:02:03`. */
+  start?: number | string | undefined;
+  title?: string | undefined;
+}
+
+/** One chapter in a Replace Chapters list: with a token it keeps and updates that chapter, without one it adds a new one. */
+export interface ChapterInput {
+  token?: string | undefined;
+  start: number | string;
+  title: string;
+}
+
+export interface LinkFields {
+  url?: string | undefined;
+  title?: string | undefined;
+  /** null removes the excerpt. */
+  excerpt?: string | null | undefined;
+}
+
+/** One link in a Replace Links list: with a token it keeps that link and its clicks, without one it adds a new one. */
+export interface LinkInput {
+  token?: string | undefined;
+  url: string;
+  title: string;
+  excerpt?: string | null | undefined;
+}
+
+export type Breakdown = 'platforms' | 'apps' | 'countries' | 'regions';
+
+export interface BreakdownQuery extends PageOptions {
+  /** platforms only: break one app down by platform. */
+  app?: string | undefined;
+  /** apps only: the apps used on one platform. */
+  platform?: string | undefined;
+  /** regions only, and required there. */
+  country?: string | undefined;
+}
+
+export type FileKind = 'audio' | 'cover' | 'transcript' | 'podcast_cover';
 
 /** Describes a file for Upload a File, which checks it against the plan's limits before anything is sent. */
 export interface UploadRequest {
@@ -110,6 +173,10 @@ export class FiresideClient {
     return this.#request('GET', `podcasts/${seg(podcast)}`, itemEnvelope(podcastSchema), { signal });
   }
 
+  updatePodcast(podcast: string, fields: PodcastFields, signal?: AbortSignal) {
+    return this.#request('PATCH', `podcasts/${seg(podcast)}`, itemEnvelope(podcastSchema), { body: fields, signal });
+  }
+
   listEpisodes(
     podcast: string,
     options: PageOptions & { status?: 'published' | 'scheduled' | 'draft' | undefined } = {},
@@ -150,6 +217,57 @@ export class FiresideClient {
     return this.#request('POST', `${episodePath(podcast, episode)}/unpublish`, itemEnvelope(episodeSchema), {
       signal,
     });
+  }
+
+  listChapters(podcast: string, episode: string, signal?: AbortSignal) {
+    return this.#request('GET', `${episodePath(podcast, episode)}/chapters`, chaptersEnvelope, { signal });
+  }
+
+  replaceChapters(podcast: string, episode: string, chapters: ChapterInput[], signal?: AbortSignal) {
+    return this.#request('PUT', `${episodePath(podcast, episode)}/chapters`, chaptersEnvelope, {
+      body: { chapters },
+      signal,
+    });
+  }
+
+  createChapter(podcast: string, episode: string, chapter: ChapterFields, signal?: AbortSignal) {
+    return this.#request('POST', `${episodePath(podcast, episode)}/chapters`, chapterEnvelope, { body: chapter, signal });
+  }
+
+  updateChapter(podcast: string, episode: string, chapter: string, fields: ChapterFields, signal?: AbortSignal) {
+    return this.#request('PATCH', `${episodePath(podcast, episode)}/chapters/${seg(chapter)}`, chapterEnvelope, {
+      body: fields,
+      signal,
+    });
+  }
+
+  deleteChapter(podcast: string, episode: string, chapter: string, signal?: AbortSignal) {
+    return this.#request('DELETE', `${episodePath(podcast, episode)}/chapters/${seg(chapter)}`, chapterEnvelope, {
+      signal,
+    });
+  }
+
+  listLinks(podcast: string, episode: string, signal?: AbortSignal) {
+    return this.#request('GET', `${episodePath(podcast, episode)}/links`, linksEnvelope, { signal });
+  }
+
+  replaceLinks(podcast: string, episode: string, links: LinkInput[], signal?: AbortSignal) {
+    return this.#request('PUT', `${episodePath(podcast, episode)}/links`, linksEnvelope, { body: { links }, signal });
+  }
+
+  createLink(podcast: string, episode: string, link: LinkFields, signal?: AbortSignal) {
+    return this.#request('POST', `${episodePath(podcast, episode)}/links`, linkEnvelope, { body: link, signal });
+  }
+
+  updateLink(podcast: string, episode: string, link: string, fields: LinkFields, signal?: AbortSignal) {
+    return this.#request('PATCH', `${episodePath(podcast, episode)}/links/${seg(link)}`, linkEnvelope, {
+      body: fields,
+      signal,
+    });
+  }
+
+  deleteLink(podcast: string, episode: string, link: string, signal?: AbortSignal) {
+    return this.#request('DELETE', `${episodePath(podcast, episode)}/links/${seg(link)}`, linkEnvelope, { signal });
   }
 
   createUpload(podcast: string, request: UploadRequest, signal?: AbortSignal) {
@@ -246,8 +364,26 @@ export class FiresideClient {
     });
   }
 
+  /**
+   * All-time downloads by platform, app, country, or region within a country, for the whole podcast or,
+   * when `episode` is given, for one episode. Needs a plan with Advanced Metrics.
+   */
+  getBreakdown(
+    podcast: string,
+    episode: string | undefined,
+    by: Breakdown,
+    query: BreakdownQuery = {},
+    signal?: AbortSignal,
+  ) {
+    const scope = episode === undefined ? '' : `episodes/${seg(episode)}/`;
+    return this.#request('GET', `podcasts/${seg(podcast)}/${scope}metrics/${by}`, breakdownEnvelope, {
+      query: { ...query },
+      signal,
+    });
+  }
+
   async #request<S extends z.ZodType>(
-    method: 'GET' | 'POST' | 'PATCH',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     schema: S,
     options: { query?: Query; body?: object; signal?: AbortSignal | undefined },
@@ -358,7 +494,10 @@ function toApiError(response: Response, body: unknown, method: string, path: str
     if (code !== undefined) details.code = code;
     if (fields !== undefined) details.fields = fields;
     const saved = savedEpisodeSchema.safeParse(parsed.data.data);
-    if (code === 'upload_failed' && saved.success) details.savedEpisode = { token: saved.data.token, slug: saved.data.slug };
+    // Update Podcast's upload_failed carries the podcast, not an episode.
+    if (code === 'upload_failed' && saved.success && /\/episodes(\/|$)/.test(path)) {
+      details.savedEpisode = { token: saved.data.token, slug: saved.data.slug };
+    }
     return new FiresideApiError(message, details);
   }
   const snippet = (typeof body === 'string' ? body : body === undefined ? '' : JSON.stringify(body)).slice(0, 300);

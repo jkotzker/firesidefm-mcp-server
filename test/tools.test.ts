@@ -21,12 +21,24 @@ const READ_TOOLS = [
   'fireside_get_episode_metrics',
   'fireside_get_monthly_downloads',
   'fireside_get_daily_downloads',
+  'fireside_get_download_breakdown',
+  'fireside_list_chapters',
+  'fireside_list_links',
 ];
 const WRITE_TOOLS = [
   'fireside_create_episode',
   'fireside_update_episode',
   'fireside_publish_episode',
   'fireside_unpublish_episode',
+  'fireside_update_podcast',
+  'fireside_set_chapters',
+  'fireside_add_chapter',
+  'fireside_update_chapter',
+  'fireside_delete_chapter',
+  'fireside_set_links',
+  'fireside_add_link',
+  'fireside_update_link',
+  'fireside_delete_link',
 ];
 
 let conn: Connected | undefined;
@@ -79,6 +91,12 @@ describe('tool metadata', () => {
     expect(byName.fireside_create_episode!.annotations?.destructiveHint).toBe(false);
     expect(byName.fireside_publish_episode!.annotations?.destructiveHint).toBe(true);
     expect(byName.fireside_unpublish_episode!.annotations?.destructiveHint).toBe(true);
+    for (const name of ['fireside_add_chapter', 'fireside_add_link']) {
+      expect(byName[name]!.annotations?.destructiveHint, name).toBe(false);
+    }
+    for (const name of WRITE_TOOLS.filter((n) => /_(set|update|delete)_/.test(n))) {
+      expect(byName[name]!.annotations?.destructiveHint, name).toBe(true);
+    }
   });
 
   it('names the default podcast in podcast argument descriptions', async () => {

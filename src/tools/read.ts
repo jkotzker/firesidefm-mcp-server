@@ -61,7 +61,9 @@ export function registerReadTools(server: McpServer, { client, resolver }: ToolD
     {
       title: 'Get podcast',
       description:
-        "Get one podcast's full details: description, artwork, categories, feed and website URLs, owner, and all-time total downloads.",
+        "Get one podcast's full details: description, artwork, categories, feed and website URLs, owner, and " +
+          'all-time total downloads. For an owner, admin or manager, also episode_defaults: what new episodes start ' +
+          'with, which fireside_update_podcast changes.',
       inputSchema: z.strictObject({ podcast: podcastArg(resolver) }),
       outputSchema: podcastSchema,
       annotations: READ,
@@ -80,7 +82,8 @@ export function registerReadTools(server: McpServer, { client, resolver }: ToolD
       description:
         "List a podcast's episodes, newest first, including drafts and scheduled episodes. " +
         'Returns a summary of each (has_audio shows whether audio has been uploaded); ' +
-        'use fireside_get_episode for show notes and all other fields. Needs the owner, manager, or producer role.',
+        'use fireside_get_episode for show notes and all other fields. status says whether an episode is released: ' +
+        'a draft can carry a published_at. Needs the owner, manager, or producer role.',
       inputSchema: z.strictObject({
         podcast: podcastArg(resolver),
         status: z

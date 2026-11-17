@@ -25,14 +25,15 @@ export function describeError(error: unknown): string {
     }`;
   }
   if (error instanceof FiresideResponseShapeError) {
-    if (error.request.method === 'GET') return error.message;
-    return `${error.message}\n${isUploadRequest(error.request.path) ? UPLOAD_RETRY_HINT : APPLIED_HINT}`;
+    const { method, path } = error.request;
+    if (method === 'GET') return error.message;
+    return `${error.message}\n${isUploadRequest(path) ? UPLOAD_RETRY_HINT : appliedHint(path)}`;
   }
   if (!(error instanceof FiresideApiError)) {
     return `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
   }
 
-  const { status, code, fields, retryAfterSeconds, method, savedEpisode } = error.details;
+  const { status, code, fields, retryAfterSeconds, method, path, savedEpisode } = error.details;
   const label = [status === undefined ? undefined : `HTTP ${status}`, code].filter(Boolean).join(', ');
   const lines = [`Fireside API error${label ? ` (${label})` : ''}: ${error.message}`];
   if (fields) {
@@ -41,22 +42,61 @@ export function describeError(error: unknown): string {
     }
   }
   const hint = outcomeUnknown(method, status)
-    ? isUploadRequest(error.details.path)
+    ? isUploadRequest(path)
       ? UPLOAD_RETRY_HINT
-      : MAYBE_APPLIED_HINT
+      : maybeAppliedHint(method, path)
     : code === 'upload_failed'
-      ? uploadFailedHint(method, savedEpisode)
-      : hintFor(status, code, retryAfterSeconds);
+      ? uploadFailedHint(method, path, savedEpisode)
+      : hintFor(status, code, retryAfterSeconds, method, path);
   if (hint) lines.push(hint);
   return lines.join('\n');
 }
 
-const APPLIED_HINT =
-  'The change was saved. Do not repeat the call; check the episode with fireside_get_episode or fireside_list_episodes.';
-const MAYBE_APPLIED_HINT =
-  'Fireside may have received and applied this change. Check the episode with fireside_get_episode or ' +
-  'fireside_list_episodes before trying again: episodes cannot be deleted through the API, so repeating a create ' +
-  'leaves a duplicate draft.';
+type Subject = 'episode' | 'chapters' | 'links' | 'podcast';
+
+/** What a write request changed, judged from its API path. */
+function subjectOf(path: string): Subject {
+  if (/^podcasts\/[^/]+\/episodes\/[^/]+\/chapters(\/|$)/.test(path)) return 'chapters';
+  if (/^podcasts\/[^/]+\/episodes\/[^/]+\/links(\/|$)/.test(path)) return 'links';
+  if (/^podcasts\/[^/]+$/.test(path)) return 'podcast';
+  return 'episode';
+}
+
+const CHECK: Record<Subject, string> = {
+  episode: 'the episode with fireside_get_episode or fireside_list_episodes',
+  chapters: "the episode's chapters with fireside_list_chapters",
+  links: "the episode's links with fireside_list_links",
+  podcast: 'the podcast with fireside_get_podcast',
+};
+
+const VALID_TOKENS = 'fireside_list_podcasts and fireside_list_episodes show valid tokens';
+const LISTS: Record<Subject, string> = {
+  episode: `${VALID_TOKENS}.`,
+  podcast: `${VALID_TOKENS}.`,
+  chapters: `${VALID_TOKENS}, and fireside_list_chapters the episode's chapter tokens.`,
+  links: `${VALID_TOKENS}, and fireside_list_links the episode's link tokens.`,
+};
+
+function appliedHint(path: string): string {
+  return `The change was saved. Do not repeat the call; check ${CHECK[subjectOf(path)]}.`;
+}
+
+function maybeAppliedHint(method: string, path: string): string {
+  const subject = subjectOf(path);
+  const check = `Fireside may have received and applied this change. Check ${CHECK[subject]} before trying again`;
+  if (subject === 'episode') {
+    return `${check}: episodes cannot be deleted through the API, so repeating a create leaves a duplicate draft.`;
+  }
+  switch (method) {
+    case 'POST':
+      return `${check}: repeating it may add a second copy.`;
+    case 'DELETE':
+      return `${check}: it may already be deleted.`;
+    default:
+      // Replacing a whole list, or patching fields, with the same values ends in the same state.
+      return `${check}, or send the same change again, which is safe.`;
+  }
+}
 
 // Asking for an upload changes no episode, so whatever happened to it, trying again is safe.
 const UPLOAD_RETRY_HINT = 'Nothing was attached to an episode. Try fireside_upload_file again.';
@@ -74,7 +114,14 @@ function outcomeUnknown(method: string, status: number | undefined): boolean {
  * Fireside could not process the file, but saves the request's other changes, so a repeated create would
  * leave a second draft. The file itself is the likely problem, so sending it again is no fix.
  */
-function uploadFailedHint(method: string, saved: { token: string; slug: string } | undefined): string {
+function uploadFailedHint(method: string, path: string, saved: { token: string; slug: string } | undefined): string {
+  if (subjectOf(path) === 'podcast') {
+    return (
+      "Fireside could not process the cover art, so the podcast's cover did not change; any other changes in the " +
+      'same call were saved. Check the image with the user (a square JPG, PNG, GIF or WebP at least 1400 pixels ' +
+      'wide) and upload a corrected one with fireside_upload_file.'
+    );
+  }
   const episode = saved ? `episode ${saved.slug} (token ${saved.token})` : 'the episode';
   const check = 'Check the file with the user; attach a corrected one with fireside_update_episode.';
   return method === 'POST'
@@ -84,8 +131,27 @@ function uploadFailedHint(method: string, saved: { token: string; slug: string }
         `call were saved. ${check}`;
 }
 
-function hintFor(status: number | undefined, code: string | undefined, retryAfter: number | undefined): string | undefined {
+function hintFor(
+  status: number | undefined,
+  code: string | undefined,
+  retryAfter: number | undefined,
+  method: string,
+  path: string,
+): string | undefined {
+  const subject = subjectOf(path);
+  if (code === 'validation_failed' && method === 'PUT' && (subject === 'chapters' || subject === 'links')) {
+    return (
+      'Nothing was saved: Fireside changes the whole list or none of it. Each field above names an item by its ' +
+      'position in the list you sent, counting from 0; correct those items and send the whole list again.'
+    );
+  }
   switch (code) {
+    case 'advanced_metrics_required':
+      return (
+        'Downloads by platform, app, country and region need a Fireside plan with Advanced Metrics, which this ' +
+        "podcast's plan does not include. fireside_get_daily_downloads, fireside_get_monthly_downloads and " +
+        'fireside_get_episode_metrics report download totals without that breakdown.'
+      );
     case 'write_access_required':
       return (
         'This API key is Read Only. Change it to Read/Write under Account > API Keys ' +
@@ -111,7 +177,7 @@ function hintFor(status: number | undefined, code: string | undefined, retryAfte
     case 403:
       return 'Your role on this podcast, or your Fireside plan, does not allow this.';
     case 404:
-      return 'Not found, or not accessible with this key. fireside_list_podcasts and fireside_list_episodes show valid tokens.';
+      return `Not found, or not accessible with this key. ${LISTS[subject]}`;
     case 429:
       return `Fireside's rate limit (120 requests per minute) was exceeded.${retryAfter === undefined ? '' : ` Retry after ${retryAfter} seconds.`}`;
   }

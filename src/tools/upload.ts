@@ -14,7 +14,8 @@ import { differences, readMp3 } from './mp3.js';
 import { writtenEpisode, writtenEpisodeSchema } from './shape.js';
 
 // The kinds and types Upload a File accepts; it requires an extension that matches the kind.
-const FILE_TYPES: Record<string, { kind: FileKind; contentType: string }> = {
+// The extension decides the kind; podcast_cover is chosen by the tool's argument, for an image.
+const FILE_TYPES: Record<string, { kind: Exclude<FileKind, 'podcast_cover'>; contentType: string }> = {
   '.mp3': { kind: 'audio', contentType: 'audio/mpeg' },
   '.jpg': { kind: 'cover', contentType: 'image/jpeg' },
   '.jpeg': { kind: 'cover', contentType: 'image/jpeg' },
@@ -31,7 +32,7 @@ const FIELDS = ['audio_file_url', 'cover_file_url', 'transcript_file_url'] as co
 type FileField = (typeof FIELDS)[number];
 
 const uploadOutputSchema = z.object({
-  kind: z.enum(['audio', 'cover', 'transcript']),
+  kind: z.enum(['audio', 'cover', 'transcript', 'podcast_cover']),
   filename: z.string(),
   byte_size: z.number().int(),
   field: z.enum(FIELDS),
@@ -61,13 +62,16 @@ export function registerUploadTool(server: McpServer, { client, resolver, upload
     {
       title: 'Upload episode file',
       description:
-        'Upload episode audio (.mp3), cover art (.jpg, .jpeg, .png, .gif or .webp) or a transcript (.txt) from this ' +
-        `computer. Only files inside ${where} can be sent; upload only a file the user asked for. With episode, the ` +
+        'Upload episode audio (.mp3), cover art (.jpg, .jpeg, .png, .gif or .webp) or a transcript (.txt), or the ' +
+        "podcast's own cover art (an image with podcast_cover set), from this computer. Only files inside " +
+        `${where} can be sent; upload only a file the user asked for. With episode, the ` +
         'file is attached to that episode, and changes to a published episode go live immediately. Without it, pass ' +
         "the result's file_url to fireside_create_episode or fireside_update_episode in the field it names; " +
         'resending it with fireside_update_episode also retries an audio transfer that failed. ' +
         'An MP3 is checked first and refused if it differs from the settings Fireside suggests, unless ' +
-        'accept_audio_specs is set. Audio then transfers in the background: fireside_get_episode shows its audio_status.',
+        'accept_audio_specs is set. Audio then transfers in the background: fireside_get_episode shows its audio_status. ' +
+        "An MP3 that has chapters of its own replaces the episode's chapters. A podcast cover is not attached here: " +
+        'pass its file_url to fireside_update_podcast as cover_file_url.',
       inputSchema: z.strictObject({
         podcast: podcastArg(resolver),
         path: z.string().trim().min(1).describe(`Absolute path of the file, inside ${where}.`),
@@ -76,6 +80,13 @@ export function registerUploadTool(server: McpServer, { client, resolver, upload
           .describe(
             'Episode token or slug to attach the file to, replacing its current one. Omit it to get a file_url for ' +
               'fireside_create_episode or fireside_update_episode instead.',
+          ),
+        podcast_cover: z
+          .boolean()
+          .optional()
+          .describe(
+            "Upload an image as the podcast's own cover art rather than an episode's: a square JPG, PNG, GIF or WebP " +
+              'at least 1400 pixels wide. Not used with episode. Needs the manager or owner role.',
           ),
         accept_audio_specs: z
           .boolean()
@@ -91,8 +102,20 @@ export function registerUploadTool(server: McpServer, { client, resolver, upload
     (args, ctx) =>
       guarded(async () => {
         const signal = ctx.mcpReq.signal;
+        if (args.podcast_cover === true && args.episode !== undefined) {
+          throw new ToolInputError(
+            "A podcast cover is not attached to an episode. Leave out episode, then pass the result's file_url to " +
+              'fireside_update_podcast as cover_file_url.',
+          );
+        }
         const file = await openFile(args.path, uploadDirs);
         try {
+          if (args.podcast_cover === true && file.kind !== 'cover') {
+            throw new ToolInputError(
+              `A podcast cover must be a .jpg, .jpeg, .png, .gif or .webp image; ${file.filename} is not.`,
+            );
+          }
+          const kind: FileKind = args.podcast_cover === true ? 'podcast_cover' : file.kind;
           const audio = file.kind === 'audio' ? await checkAudio(file, args.accept_audio_specs === true) : undefined;
           const podcast = await resolver.podcast(args.podcast, signal);
           // Resolved before uploading, so a mistyped episode costs no upload.
@@ -103,7 +126,7 @@ export function registerUploadTool(server: McpServer, { client, resolver, upload
             upload = (
               await client.createUpload(
                 podcast,
-                { kind: file.kind, filename: file.filename, byte_size: file.size, content_type: file.contentType },
+                { kind, filename: file.filename, byte_size: file.size, content_type: file.contentType },
                 signal,
               )
             ).data;
@@ -121,11 +144,12 @@ export function registerUploadTool(server: McpServer, { client, resolver, upload
             },
           );
 
-          const field: FileField = `${file.kind}_file_url`;
+          // A podcast cover goes to Update Podcast, whose field is also cover_file_url.
+          const field: FileField = kind === 'podcast_cover' ? 'cover_file_url' : `${file.kind}_file_url`;
           // file_url is returned after attaching too: resending it with fireside_update_episode retries a failed
           // background audio transfer without uploading the file again.
           const result = {
-            kind: file.kind,
+            kind,
             filename: file.filename,
             byte_size: file.size,
             field,

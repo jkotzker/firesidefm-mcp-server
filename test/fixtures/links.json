@@ -1,0 +1,6 @@
+{
+  "data": [
+    { "token": "c41f0a1b-0000-4000-8000-000000000011", "url": "https://example.com/book", "title": "The Book We Mentioned", "excerpt": null, "clicks": 12 },
+    { "token": "8d02c3d4-0000-4000-8000-000000000012", "url": "https://example.com/talk", "title": "Her Conference Talk", "excerpt": "Starts at 14:00" }
+  ]
+}

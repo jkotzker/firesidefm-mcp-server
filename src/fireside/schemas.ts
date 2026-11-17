@@ -1,6 +1,6 @@
 import * as z from 'zod/v4';
 
-// Response shapes as documented at https://fireside.fm/docs/api (captured 2026-10-13).
+// Response shapes as documented at https://fireside.fm/docs/api (captured 2026-10-13, extended 2026-11-17).
 // Objects are loose: fields the docs don't list yet pass through instead of failing the parse,
 // because the API is young and still growing. Documented fields are typed as documented.
 
@@ -25,6 +25,15 @@ export const meSchema = z.looseObject({
   }),
 });
 
+export const episodeDefaultsSchema = z.looseObject({
+  subtitle: nullableString,
+  description: nullableString,
+  keywords: nullableString,
+  tags: nullableString,
+  episode_type: z.string(),
+  auto_season: z.boolean(),
+});
+
 export const podcastSchema = z.looseObject({
   token: z.string(),
   title: z.string(),
@@ -44,6 +53,8 @@ export const podcastSchema = z.looseObject({
   copyright: z.string(),
   donation_url: nullableString,
   owner: z.looseObject({ name: z.string(), email: z.string() }),
+  // Get Podcast only, and only for owners, admins and managers.
+  episode_defaults: episodeDefaultsSchema.optional(),
 });
 export type Podcast = z.infer<typeof podcastSchema>;
 
@@ -169,3 +180,46 @@ export const dailyDownloadsEnvelope = z.looseObject({
   }),
 });
 export type DailyDownloads = z.infer<typeof dailyDownloadsEnvelope>;
+
+// Documented as up_to_date, writing, out_of_date, no_audio or off; a string so that a new value does not break reads.
+const audioChapters = z.string();
+
+export const chapterSchema = z.looseObject({
+  token: z.string(),
+  start: z.number().int(),
+  timecode: z.string(),
+  title: z.string(),
+});
+
+export const chaptersEnvelope = z.looseObject({ data: z.array(chapterSchema), audio_chapters: audioChapters });
+export const chapterEnvelope = z.looseObject({ data: chapterSchema, audio_chapters: audioChapters });
+
+export const linkSchema = z.looseObject({
+  token: z.string(),
+  url: z.string(),
+  title: z.string(),
+  excerpt: nullableString,
+  // Only when click tracking is on and the key belongs to the owner or a manager.
+  clicks: z.number().int().optional(),
+});
+
+export const linksEnvelope = z.looseObject({ data: z.array(linkSchema) });
+export const linkEnvelope = itemEnvelope(linkSchema);
+
+export const breakdownRowSchema = z.looseObject({
+  // null only in lists filtered by app, platform or country, for downloads without a recorded name.
+  name: nullableString,
+  downloads: z.number().int(),
+  percent_of_total: z.number(),
+  // With a filter, the share of that app's, platform's or country's downloads.
+  percent_of_app: z.number().optional(),
+  percent_of_platform: z.number().optional(),
+  percent_of_country: z.number().optional(),
+});
+
+export const breakdownEnvelope = z.looseObject({
+  data: z.array(breakdownRowSchema),
+  // Also the filter sent (app, platform or country) and its downloads (app_downloads and so on).
+  meta: z.looseObject({ total_downloads: z.number().int() }),
+  pagination: paginationSchema,
+});
